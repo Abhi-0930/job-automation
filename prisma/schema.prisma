@@ -1,0 +1,82 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model RawJob {
+  id          String   @id @default(uuid())
+  source      String
+  externalId  String?  @map("external_id")
+  title       String
+  company     String
+  location    String
+  description String   @db.Text
+  url         String   @db.Text
+  hash        String   @unique
+  metadata    Json?
+  processed   Boolean  @default(false)
+  scrapedAt   DateTime @default(now()) @map("scraped_at")
+
+  job         Job?
+
+  @@index([source])
+  @@index([processed])
+  @@index([scrapedAt])
+  @@map("jobs_raw")
+}
+
+model Job {
+  id              String       @id @default(uuid())
+  rawJobId        String?      @unique @map("raw_job_id")
+  title           String
+  company         String
+  location        String
+  description     String       @db.Text
+  url             String       @db.Text
+  hash            String       @unique
+  category        String       // TECH, NON_TECH, INTERNSHIP, GOVT, COHORT, REFERRAL
+  subcategory     String?
+  score           Int          @default(0)
+  scoreReasoning  String?      @map("score_reasoning") @db.Text
+  isRemote        Boolean      @default(false) @map("is_remote")
+  experience      String?
+  skills          String[]     @default([])
+  salary          String?
+  status          String       @default("NEW") // NEW, CLASSIFIED, SCORED, QUEUED, PUBLISHED, FAILED, ARCHIVED
+  whatsappMessage String?      @map("whatsapp_message") @db.Text
+  publishedAt     DateTime?    @map("published_at")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  rawJob          RawJob?      @relation(fields: [rawJobId], references: [id], onDelete: SetNull)
+  publishLogs     PublishLog[]
+
+  @@index([category])
+  @@index([status])
+  @@index([score])
+  @@index([publishedAt])
+  @@index([createdAt])
+  @@map("jobs")
+}
+
+model PublishLog {
+  id          String   @id @default(uuid())
+  jobId       String?  @map("job_id")
+  groupName   String   @map("group_name")
+  category    String
+  status      String   // SUCCESS, FAILED, SIMULATED
+  error       String?  @db.Text
+  message     String?  @db.Text
+  publishedAt DateTime @default(now()) @map("published_at")
+
+  job         Job?     @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@index([category])
+  @@index([status])
+  @@index([publishedAt])
+  @@map("publish_logs")
+}

@@ -1,0 +1,55 @@
+{
+  "name": "job-aggregation-distribution-system",
+  "version": "1.0.0",
+  "description": "Production-grade automated Job Aggregation and Distribution System with WhatsApp publishing",
+  "main": "dist/app.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/app.js",
+    "dev": "tsx watch src/app.ts",
+    "cli": "tsx src/cli/index.ts",
+    "auth:whatsapp": "tsx src/cli/index.ts auth",
+    "scrape": "tsx src/cli/index.ts scrape",
+    "process": "tsx src/cli/index.ts process",
+    "publish:tech": "tsx src/cli/index.ts publish --category TECH",
+    "publish:internship": "tsx src/cli/index.ts publish --category INTERNSHIP",
+    "publish:nontech": "tsx src/cli/index.ts publish --category NON_TECH",
+    "publish:digest": "tsx src/cli/index.ts digest",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:push": "prisma db push",
+    "prisma:studio": "prisma studio",
+    "test": "tsx test/index.test.ts"
+  },
+  "keywords": [
+    "job-aggregator",
+    "whatsapp-automation",
+    "playwright",
+    "deepseek",
+    "prisma",
+    "postgresql",
+    "typescript"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "axios": "^1.7.9",
+    "cheerio": "^1.0.0",
+    "commander": "^13.1.0",
+    "dotenv": "^16.4.7",
+    "node-cron": "^3.0.3",
+    "openai": "^4.85.4",
+    "playwright": "^1.50.1",
+    "winston": "^3.17.0",
+    "winston-daily-rotate-file": "^5.0.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.5",
+    "@types/node-cron": "^3.0.11",
+    "prisma": "^5.22.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  }
+}
