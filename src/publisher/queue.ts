@@ -32,6 +32,11 @@ export class PublishingQueue {
    * Publishes top jobs for a specific category to its WhatsApp group.
    */
   public async publishCategoryBatch(category: JobCategory, limit: number = env.MAX_JOBS_PER_BATCH): Promise<number> {
+    if (category === 'COHORT') {
+      logger.info('ℹ️ [PublishQueue] "Cohorts & Upskilling" is reserved for manual course promotions. Automated publishing skipped.');
+      return 0;
+    }
+
     const groupName = this.getGroupNameForCategory(category);
     const minScore = env.MIN_SCORE_TO_PUBLISH;
 

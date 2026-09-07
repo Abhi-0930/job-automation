@@ -61,19 +61,7 @@ export class SchedulerService {
     this.tasks.push(internshipTask);
     logger.info('   ✔ 1:00 PM Internships: %s', env.CRON_INTERNSHIP);
 
-    // 5. Cohorts & Upskilling Publishing (Default: 3:00 PM)
-    const cohortTask = cron.schedule(env.CRON_COHORT, async () => {
-      logger.info('⏰ [CRON TRIGGER] 3:00 PM - Publishing Top Cohorts...');
-      try {
-        await publishingQueue.publishCategoryBatch('COHORT');
-      } catch (error) {
-        logger.error('Error during 3:00 PM Cohorts publishing: %s', (error as Error).message);
-      }
-    });
-    this.tasks.push(cohortTask);
-    logger.info('   ✔ 3:00 PM Cohorts: %s', env.CRON_COHORT);
-
-    // 6. Non-Tech Jobs Publishing (Default: 5:00 PM)
+    // 5. Non-Tech Jobs Publishing (Default: 5:00 PM)
     const nonTechTask = cron.schedule(env.CRON_NON_TECH, async () => {
       logger.info('⏰ [CRON TRIGGER] 5:00 PM - Publishing Top Non-Tech Jobs...');
       try {
