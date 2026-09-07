@@ -4,6 +4,7 @@ import { logger } from '../config/logger.js';
 
 class DeepSeekService {
   private client: OpenAI | null = null;
+  private isQuotaExhausted: boolean = false;
 
   constructor() {
     if (env.DEEPSEEK_API_KEY && env.DEEPSEEK_API_KEY.trim() !== '') {
@@ -18,7 +19,7 @@ class DeepSeekService {
   }
 
   public hasApiKey(): boolean {
-    return !!this.client;
+    return !!this.client && !this.isQuotaExhausted;
   }
 
   public async chatCompletion(params: {
@@ -27,7 +28,7 @@ class DeepSeekService {
     jsonResponse?: boolean;
     temperature?: number;
   }): Promise<string | null> {
-    if (!this.client) {
+    if (!this.client || this.isQuotaExhausted) {
       return null;
     }
 
@@ -44,7 +45,18 @@ class DeepSeekService {
 
       return response.choices[0]?.message?.content || null;
     } catch (error) {
-      logger.error('DeepSeek API call failed: %s', (error as Error).message);
+      const errMsg = (error as Error).message;
+      if (
+        errMsg.includes('402') ||
+        errMsg.includes('Insufficient Balance') ||
+        errMsg.includes('insufficient_quota') ||
+        errMsg.includes('quota')
+      ) {
+        this.isQuotaExhausted = true;
+        logger.warn('⚠️ DeepSeek account balance is insufficient (402). Switched to high-speed local heuristic scoring and rule classifier.');
+      } else {
+        logger.error('DeepSeek API call failed: %s', errMsg);
+      }
       return null;
     }
   }
