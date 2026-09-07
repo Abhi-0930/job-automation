@@ -1,3 +1,4 @@
+import http from 'http';
 import { connectDatabase, disconnectDatabase } from './database/prisma.js';
 import { schedulerService } from './scheduler/cron.js';
 import { jobCollector } from './jobs/collector.js';
@@ -36,10 +37,26 @@ async function bootstrap() {
     });
   }
 
-  // 4. Graceful Shutdown Handlers
+  // 4. Start Lightweight HTTP Server for Render Health Checks & Keep-Alive
+  const server = http.createServer((req, res) => {
+    if (req.url === '/health' || req.url === '/') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', uptime: process.uptime(), timestamp: new Date().toISOString() }));
+    } else {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Not Found');
+    }
+  });
+
+  server.listen(env.PORT, '0.0.0.0', () => {
+    logger.info('🌐 Health check server listening on port %d (http://0.0.0.0:%d/health)', env.PORT, env.PORT);
+  });
+
+  // 5. Graceful Shutdown Handlers
   const handleShutdown = async (signal: string) => {
     logger.info('\nReceived %s signal. Performing graceful shutdown...', signal);
     schedulerService.stop();
+    server.close();
     await disconnectDatabase();
     logger.info('👋 Process terminated cleanly.');
     process.exit(0);

@@ -37,33 +37,29 @@ export class JobCollector {
       return { scrapedCount, newUniqueCount: 0, processedCount: 0 };
     }
 
-    // 3. Ingest into jobs_raw
+    // 3. Ingest into jobs_raw in high-speed batch
     let savedRawCount = 0;
-    const rawJobRecords: Array<{ id: string; hash: string }> = [];
+    try {
+      const batchData = uniqueJobs.map((job) => ({
+        source: job.source,
+        externalId: job.externalId || null,
+        title: job.title,
+        company: job.company,
+        location: job.location,
+        description: job.description,
+        url: job.url,
+        hash: job.hash,
+        metadata: job.metadata as object,
+        processed: false,
+      }));
 
-    for (const job of uniqueJobs) {
-      try {
-        const record = await prisma.rawJob.upsert({
-          where: { hash: job.hash },
-          update: {},
-          create: {
-            source: job.source,
-            externalId: job.externalId || null,
-            title: job.title,
-            company: job.company,
-            location: job.location,
-            description: job.description,
-            url: job.url,
-            hash: job.hash,
-            metadata: job.metadata as object,
-            processed: false,
-          },
-        });
-        savedRawCount++;
-        rawJobRecords.push({ id: record.id, hash: record.hash });
-      } catch (err) {
-        logger.error('[Collector] Error saving raw job %s: %s', job.hash, (err as Error).message);
-      }
+      const result = await prisma.rawJob.createMany({
+        data: batchData,
+        skipDuplicates: true,
+      });
+      savedRawCount = result.count;
+    } catch (err) {
+      logger.error('[Collector] Batch insert error: %s', (err as Error).message);
     }
 
     logger.info('[Collector] Saved %d new records to jobs_raw', savedRawCount);

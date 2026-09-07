@@ -35,72 +35,57 @@ export interface DedupCheckResult {
 }
 
 /**
- * Checks whether a job hash already exists in jobs_raw or jobs table.
- */
-export async function checkDuplicate(hash: string): Promise<DedupCheckResult> {
-  try {
-    const existingRaw = await prisma.rawJob.findUnique({
-      where: { hash },
-      select: { id: true },
-    });
-
-    if (existingRaw) {
-      return { isDuplicate: true, hash, reason: 'EXISTS_IN_RAW' };
-    }
-
-    const existingJob = await prisma.job.findUnique({
-      where: { hash },
-      select: { id: true },
-    });
-
-    if (existingJob) {
-      return { isDuplicate: true, hash, reason: 'EXISTS_IN_JOBS' };
-    }
-
-    return { isDuplicate: false, hash };
-  } catch (error) {
-    logger.error('Error during deduplication check for hash %s: %s', hash, (error as Error).message);
-    // In case of transient DB error, return false so we don't drop jobs prematurely
-    return { isDuplicate: false, hash };
-  }
-}
-
-/**
- * Filters a list of scraped jobs, returning only unique new jobs with their computed hashes.
+ * Batch checks whether multiple job hashes already exist in jobs_raw or jobs table in a single DB query.
  */
 export async function filterUniqueJobs(
   scrapedJobs: RawScrapedJob[]
 ): Promise<Array<RawScrapedJob & { hash: string }>> {
-  const uniqueJobs: Array<RawScrapedJob & { hash: string }> = [];
+  if (scrapedJobs.length === 0) return [];
+
+  // 1. Calculate hashes and deduplicate in-memory first
+  const jobsWithHash: Array<RawScrapedJob & { hash: string }> = [];
   const seenHashesInBatch = new Set<string>();
 
   for (const job of scrapedJobs) {
     const hash = generateJobHash(job.company, job.title, job.location);
-
-    if (seenHashesInBatch.has(hash)) {
-      logger.debug('Skipping in-batch duplicate: %s at %s', job.title, job.company);
-      continue;
+    if (!seenHashesInBatch.has(hash)) {
+      seenHashesInBatch.add(hash);
+      jobsWithHash.push({ ...job, hash });
     }
-    seenHashesInBatch.add(hash);
-
-    const dedup = await checkDuplicate(hash);
-    if (dedup.isDuplicate) {
-      logger.debug('Skipping existing duplicate (%s): %s at %s (%s)', dedup.reason, job.title, job.company, hash);
-      continue;
-    }
-
-    uniqueJobs.push({
-      ...job,
-      hash,
-    });
   }
 
-  logger.info(
-    'Deduplication complete: %d received -> %d new unique jobs (%d duplicates skipped)',
-    scrapedJobs.length,
-    uniqueJobs.length,
-    scrapedJobs.length - uniqueJobs.length
-  );
+  const allHashes = Array.from(seenHashesInBatch);
 
-  return uniqueJobs;
+  try {
+    // 2. Perform single batch DB queries
+    const [existingRaw, existingJobs] = await Promise.all([
+      prisma.rawJob.findMany({
+        where: { hash: { in: allHashes } },
+        select: { hash: true },
+      }),
+      prisma.job.findMany({
+        where: { hash: { in: allHashes } },
+        select: { hash: true },
+      }),
+    ]);
+
+    const existingHashSet = new Set<string>([
+      ...existingRaw.map((r) => r.hash),
+      ...existingJobs.map((j) => j.hash),
+    ]);
+
+    const uniqueJobs = jobsWithHash.filter((j) => !existingHashSet.has(j.hash));
+
+    logger.info(
+      'Deduplication complete: %d received -> %d unique jobs (%d duplicates filtered out)',
+      scrapedJobs.length,
+      uniqueJobs.length,
+      scrapedJobs.length - uniqueJobs.length
+    );
+
+    return uniqueJobs;
+  } catch (error) {
+    logger.error('Error during batch deduplication: %s', (error as Error).message);
+    return jobsWithHash;
+  }
 }
