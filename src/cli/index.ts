@@ -27,6 +27,36 @@ program
     }
   });
 
+// Command: Backup Session to Cloud DB
+program
+  .command('session:push')
+  .description('Backup local WhatsApp session to Neon Cloud DB')
+  .action(async () => {
+    const connected = await connectDatabase();
+    if (!connected) process.exit(1);
+    try {
+      const { backupSessionToCloud } = await import('../publisher/session-sync.js');
+      await backupSessionToCloud();
+    } finally {
+      await disconnectDatabase();
+    }
+  });
+
+// Command: Restore Session from Cloud DB
+program
+  .command('session:pull')
+  .description('Restore WhatsApp session from Neon Cloud DB')
+  .action(async () => {
+    const connected = await connectDatabase();
+    if (!connected) process.exit(1);
+    try {
+      const { restoreSessionFromCloud } = await import('../publisher/session-sync.js');
+      await restoreSessionFromCloud();
+    } finally {
+      await disconnectDatabase();
+    }
+  });
+
 // Command: Run Scrapers Only
 program
   .command('scrape')

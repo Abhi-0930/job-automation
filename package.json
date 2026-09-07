@@ -9,6 +9,8 @@
     "dev": "tsx watch src/app.ts",
     "cli": "tsx src/cli/index.ts",
     "auth:whatsapp": "tsx src/cli/index.ts auth",
+    "session:push": "tsx src/cli/index.ts session:push",
+    "session:pull": "tsx src/cli/index.ts session:pull",
     "scrape": "tsx src/cli/index.ts scrape",
     "process": "tsx src/cli/index.ts process",
     "publish:tech": "tsx src/cli/index.ts publish --category TECH",

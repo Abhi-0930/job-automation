@@ -80,3 +80,11 @@ model PublishLog {
   @@index([publishedAt])
   @@map("publish_logs")
 }
+
+model SessionBackup {
+  key       String   @id
+  data      String   @db.Text
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("session_backups")
+}

@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
+import { backupSessionToCloud, restoreSessionFromCloud } from './session-sync.js';
 
 export class WhatsAppPublisher {
   private sessionDir: string;
@@ -38,6 +39,9 @@ export class WhatsAppPublisher {
         timeout: 120000,
       });
       logger.info('🎉 WhatsApp Web authenticated successfully! Session saved to: %s', this.sessionDir);
+      
+      // Auto-sync session to cloud database for Render / VPS deployments
+      await backupSessionToCloud();
     } catch (error) {
       logger.error('❌ WhatsApp Web authentication timed out or failed: %s', (error as Error).message);
     } finally {
@@ -54,6 +58,9 @@ export class WhatsAppPublisher {
       logger.info('🧪 [DRY_RUN] Simulating WhatsApp post to "%s":\n%s', groupName, message);
       return { success: true };
     }
+
+    // Auto-restore session from cloud if running on Render / clean container
+    await restoreSessionFromCloud();
 
     logger.info('📤 Sending WhatsApp message to group: "%s"', groupName);
     let context: BrowserContext | null = null;
