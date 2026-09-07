@@ -36,8 +36,11 @@ const envSchema = z.object({
   // Crons
   CRON_COLLECTION: z.string().default('*/15 * * * *'),
   CRON_TECH: z.string().default('0 9 * * *'),
+  CRON_GOVT: z.string().default('0 11 * * *'),
   CRON_INTERNSHIP: z.string().default('0 13 * * *'),
+  CRON_COHORT: z.string().default('0 15 * * *'),
   CRON_NON_TECH: z.string().default('0 17 * * *'),
+  CRON_REFERRAL: z.string().default('0 19 * * *'),
   CRON_DIGEST: z.string().default('0 20 * * *'),
 
   // Safety

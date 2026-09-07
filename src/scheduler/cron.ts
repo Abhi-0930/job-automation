@@ -37,7 +37,19 @@ export class SchedulerService {
     this.tasks.push(techTask);
     logger.info('   ✔ 9:00 AM Tech Jobs: %s', env.CRON_TECH);
 
-    // 3. Internships Publishing (Default: 1:00 PM)
+    // 3. Government Jobs Publishing (Default: 11:00 AM)
+    const govtTask = cron.schedule(env.CRON_GOVT, async () => {
+      logger.info('⏰ [CRON TRIGGER] 11:00 AM - Publishing Top Govt Jobs...');
+      try {
+        await publishingQueue.publishCategoryBatch('GOVT');
+      } catch (error) {
+        logger.error('Error during 11:00 AM Govt publishing: %s', (error as Error).message);
+      }
+    });
+    this.tasks.push(govtTask);
+    logger.info('   ✔ 11:00 AM Govt Jobs: %s', env.CRON_GOVT);
+
+    // 4. Internships Publishing (Default: 1:00 PM)
     const internshipTask = cron.schedule(env.CRON_INTERNSHIP, async () => {
       logger.info('⏰ [CRON TRIGGER] 1:00 PM - Publishing Top Internships...');
       try {
@@ -49,7 +61,19 @@ export class SchedulerService {
     this.tasks.push(internshipTask);
     logger.info('   ✔ 1:00 PM Internships: %s', env.CRON_INTERNSHIP);
 
-    // 4. Non-Tech Jobs Publishing (Default: 5:00 PM)
+    // 5. Cohorts & Upskilling Publishing (Default: 3:00 PM)
+    const cohortTask = cron.schedule(env.CRON_COHORT, async () => {
+      logger.info('⏰ [CRON TRIGGER] 3:00 PM - Publishing Top Cohorts...');
+      try {
+        await publishingQueue.publishCategoryBatch('COHORT');
+      } catch (error) {
+        logger.error('Error during 3:00 PM Cohorts publishing: %s', (error as Error).message);
+      }
+    });
+    this.tasks.push(cohortTask);
+    logger.info('   ✔ 3:00 PM Cohorts: %s', env.CRON_COHORT);
+
+    // 6. Non-Tech Jobs Publishing (Default: 5:00 PM)
     const nonTechTask = cron.schedule(env.CRON_NON_TECH, async () => {
       logger.info('⏰ [CRON TRIGGER] 5:00 PM - Publishing Top Non-Tech Jobs...');
       try {
@@ -61,7 +85,19 @@ export class SchedulerService {
     this.tasks.push(nonTechTask);
     logger.info('   ✔ 5:00 PM Non-Tech Jobs: %s', env.CRON_NON_TECH);
 
-    // 5. Daily Digest Publishing (Default: 8:00 PM)
+    // 7. Referrals & Networking Publishing (Default: 7:00 PM)
+    const referralTask = cron.schedule(env.CRON_REFERRAL, async () => {
+      logger.info('⏰ [CRON TRIGGER] 7:00 PM - Publishing Top Referrals...');
+      try {
+        await publishingQueue.publishCategoryBatch('REFERRAL');
+      } catch (error) {
+        logger.error('Error during 7:00 PM Referrals publishing: %s', (error as Error).message);
+      }
+    });
+    this.tasks.push(referralTask);
+    logger.info('   ✔ 7:00 PM Referrals: %s', env.CRON_REFERRAL);
+
+    // 8. Daily Digest Publishing (Default: 8:00 PM)
     const digestTask = cron.schedule(env.CRON_DIGEST, async () => {
       logger.info('⏰ [CRON TRIGGER] 8:00 PM - Publishing Daily Digest...');
       try {
