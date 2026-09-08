@@ -60,7 +60,19 @@ export async function classifyJob(title: string, description: string, location: 
   const combinedText = `${title} ${description} ${location}`.toLowerCase();
   const expInfo = extractExperience(combinedText, 'UNKNOWN' as JobCategory);
 
-  // 1. Check Rule Engine
+  // 0. ABSOLUTE RULE: Any title mentioning intern/internship MUST be INTERNSHIP category
+  if (/\b(intern|internship|summer intern|student trainee|apprentice|apprenticeship)\b/i.test(title)) {
+    const specificExp = extractExperience(combinedText, 'INTERNSHIP');
+    return {
+      category: 'INTERNSHIP',
+      isRemote: combinedText.includes('remote') || combinedText.includes('work from home'),
+      experience: specificExp.label,
+      isFresherEligible: true,
+      skills: extractSkills(combinedText),
+      confidence: 1.0,
+      source: 'RULE',
+    };
+  }
   for (const rule of CLASSIFICATION_RULES) {
     if (rule.regex.test(title)) {
       // Title match has highest confidence

@@ -43,12 +43,24 @@ export class PublishingQueue {
 
     logger.info('📣 [PublishQueue] Fetching top %s jobs (score >= %d, target: %d) for group "%s"', category, minScore, limit, groupName);
 
+    // Category-specific filters (Ensure Tech/Non-Tech never get internships)
+    const titleFilter =
+      category === 'INTERNSHIP'
+        ? {} // All jobs in INTERNSHIP category are valid
+        : {
+            not: {
+              contains: 'intern',
+              mode: 'insensitive' as const,
+            },
+          };
+
     // Fetch candidate pool (with buffer to filter out closed jobs)
     const candidateJobs = await prisma.job.findMany({
       where: {
         category,
         score: { gte: minScore },
         status: { notIn: ['PUBLISHED', 'ARCHIVED', 'FAILED'] },
+        title: titleFilter,
         experience: {
           not: {
             contains: '2+ Years',
