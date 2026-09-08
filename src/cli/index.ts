@@ -115,17 +115,28 @@ program
     }
   });
 
-// Command: Publish Category Batch
+// Command: Publish Category Batch or Daily Digest
 program
   .command('publish')
-  .description('Publish top scored jobs for a category to WhatsApp group')
-  .requiredOption('-c, --category <category>', 'Category to publish: TECH, INTERNSHIP, NON_TECH, GOVT, COHORT, REFERRAL')
+  .description('Publish top scored jobs for a category or daily digest to WhatsApp group')
+  .option('-c, --category <category>', 'Category to publish: TECH, INTERNSHIP, NON_TECH, GOVT, COHORT, REFERRAL')
   .option('-l, --limit <limit>', 'Maximum jobs to publish', '5')
+  .option('-d, --digest', 'Generate and publish 8:00 PM daily digest of top picks')
   .action(async (options) => {
     const connected = await connectDatabase();
     if (!connected) process.exit(1);
 
     try {
+      if (options.digest) {
+        await publishingQueue.publishDailyDigest();
+        return;
+      }
+
+      if (!options.category) {
+        logger.error('Error: Please specify -c, --category <CATEGORY> (e.g. TECH, INTERNSHIP, NON_TECH, GOVT) or --digest');
+        return;
+      }
+
       const category = options.category.toUpperCase() as JobCategory;
       const limit = parseInt(options.limit, 10) || 5;
       await publishingQueue.publishCategoryBatch(category, limit);

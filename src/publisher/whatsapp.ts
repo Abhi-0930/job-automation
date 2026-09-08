@@ -267,16 +267,67 @@ export class WhatsAppPublisher {
 
       // 8. Send message via Enter key and fallback Send button
       await page.keyboard.press('Enter');
+      await page.waitForTimeout(600);
 
-      const sendBtn = await page.waitForSelector('button[data-testid="compose-btn-send"], span[data-icon="send"], button[aria-label="Send"]', { timeout: 1500 }).catch(() => null);
+      const sendBtn = await page.waitForSelector('button[data-testid="compose-btn-send"], span[data-icon="send"], button[aria-label="Send"]', { timeout: 2000 }).catch(() => null);
       if (sendBtn) {
         await sendBtn.click({ force: true }).catch(() => {});
       }
 
-      logger.info('🚀 Message successfully posted to "%s"!', groupName);
+      // 9. Wait for WhatsApp to transition from Pending (clock icon) to Sent (checkmark)
+      logger.info('⏳ Waiting for WhatsApp server delivery confirmation (clock 🕒 -> checkmark ✔️)...');
+      const startTime = Date.now();
+      const maxWaitMs = 30000;
+      let confirmed = false;
 
-      // Pause to ensure WhatsApp server receives the message before closing browser
-      await page.waitForTimeout(env.WHATSAPP_MESSAGE_DELAY_MS || 3500);
+      while (Date.now() - startTime < maxWaitMs) {
+        // If send button is still visible, message may still be in input box, retry enter/click
+        const lingeringSendBtn = await page.$('button[data-testid="compose-btn-send"], span[data-icon="send"]');
+        if (lingeringSendBtn) {
+          await lingeringSendBtn.click({ force: true }).catch(() => {});
+          await page.keyboard.press('Enter').catch(() => {});
+        }
+
+        const deliveryStatus = await page.evaluate(() => {
+          const checkIcons = document.querySelectorAll(
+            'span[data-icon="msg-check"], span[data-icon="msg-dblcheck"], span[data-icon="msg-dblcheck-ack"], span[data-icon="status-check"], span[data-icon="status-dblcheck"]'
+          );
+          const pendingIcons = document.querySelectorAll(
+            'span[data-icon="msg-time"], span[data-icon="status-time"], span[data-icon="time"], span[aria-label*="Pending"], span[aria-label*="pending"]'
+          );
+
+          return {
+            hasChecks: checkIcons.length > 0,
+            hasPending: pendingIcons.length > 0,
+          };
+        });
+
+        if (deliveryStatus.hasChecks && !deliveryStatus.hasPending) {
+          confirmed = true;
+          logger.info('✅ Confirmed! WhatsApp server acknowledged message delivery (checkmark received).');
+          break;
+        }
+
+        // If no pending clock icons remain after initial wait
+        if (!deliveryStatus.hasPending && (Date.now() - startTime) > 4000) {
+          confirmed = true;
+          logger.info('✅ Message dispatched without pending status.');
+          break;
+        }
+
+        await page.waitForTimeout(1000);
+      }
+
+      if (!confirmed) {
+        logger.warn('⚠️ Pending clock icon took longer than usual. Allowing extra buffer for socket sync...');
+      }
+
+      // Safety buffer: keep the browser open long enough so WhatsApp Web WebSocket and IndexedDB flush completely
+      const finalDelay = Math.max(env.WHATSAPP_MESSAGE_DELAY_MS || 5000, 6000);
+      logger.info('⏱️ Finalizing message transmission buffer (%ds)...', Math.round(finalDelay / 1000));
+      await page.waitForTimeout(finalDelay);
+
+      logger.info('🚀 Message successfully posted to "%s"!', groupName);
 
       return { success: true };
     } catch (error) {
