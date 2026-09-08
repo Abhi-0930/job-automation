@@ -25,17 +25,17 @@ export class SchedulerService {
     this.tasks.push(collectionTask);
     logger.info('   ✔ Job Collection: %s', env.CRON_COLLECTION);
 
-    // 2. Tech Jobs Publishing (Default: 9:00 AM)
+    // 2. Tech Jobs Publishing (2x Daily: 9:00 AM & 4:00 PM)
     const techTask = cron.schedule(env.CRON_TECH, async () => {
-      logger.info('⏰ [CRON TRIGGER] 9:00 AM - Publishing Top Tech Jobs...');
+      logger.info('⏰ [CRON TRIGGER] Publishing Top Tech Jobs Batch (2x Daily Slot)...');
       try {
         await publishingQueue.publishCategoryBatch('TECH');
       } catch (error) {
-        logger.error('Error during 9:00 AM Tech publishing: %s', (error as Error).message);
+        logger.error('Error during Tech publishing: %s', (error as Error).message);
       }
     });
     this.tasks.push(techTask);
-    logger.info('   ✔ 9:00 AM Tech Jobs: %s', env.CRON_TECH);
+    logger.info('   ✔ Tech Jobs (2x Daily): %s', env.CRON_TECH);
 
     // 3. Government Jobs Publishing (Default: 11:00 AM)
     const govtTask = cron.schedule(env.CRON_GOVT, async () => {
@@ -61,17 +61,17 @@ export class SchedulerService {
     this.tasks.push(internshipTask);
     logger.info('   ✔ 1:00 PM Internships: %s', env.CRON_INTERNSHIP);
 
-    // 5. Non-Tech Jobs Publishing (Default: 5:00 PM)
+    // 5. Non-Tech Jobs Publishing (2x Daily: 2:00 PM & 6:00 PM)
     const nonTechTask = cron.schedule(env.CRON_NON_TECH, async () => {
-      logger.info('⏰ [CRON TRIGGER] 5:00 PM - Publishing Top Non-Tech Jobs...');
+      logger.info('⏰ [CRON TRIGGER] Publishing Top Non-Tech Jobs Batch (2x Daily Slot)...');
       try {
         await publishingQueue.publishCategoryBatch('NON_TECH');
       } catch (error) {
-        logger.error('Error during 5:00 PM Non-Tech publishing: %s', (error as Error).message);
+        logger.error('Error during Non-Tech publishing: %s', (error as Error).message);
       }
     });
     this.tasks.push(nonTechTask);
-    logger.info('   ✔ 5:00 PM Non-Tech Jobs: %s', env.CRON_NON_TECH);
+    logger.info('   ✔ Non-Tech Jobs (2x Daily): %s', env.CRON_NON_TECH);
 
     // 7. Referrals & Networking Publishing (Default: 7:00 PM)
     const referralTask = cron.schedule(env.CRON_REFERRAL, async () => {
