@@ -29,22 +29,33 @@ export class CareersScraper extends BaseScraper {
   public readonly name = 'Company Career Pages Scraper';
   public readonly source = 'careers';
 
-  // Notable tech companies using Greenhouse ATS
+  // Notable tech companies & high-growth startups using Greenhouse ATS
   private greenhouseCompanies = [
     { name: 'Razorpay', boardToken: 'razorpay' },
     { name: 'Zepto', boardToken: 'zepto' },
     { name: 'Swiggy', boardToken: 'swiggy' },
+    { name: 'Meesho', boardToken: 'meesho' },
+    { name: 'Cred', boardToken: 'cred' },
+    { name: 'Groww', boardToken: 'groww' },
+    { name: 'Urban Company', boardToken: 'urbancompany' },
+    { name: 'Nykaa', boardToken: 'nykaa' },
     { name: 'Figma', boardToken: 'figma' },
     { name: 'Stripe', boardToken: 'stripe' },
     { name: 'Postman', boardToken: 'postman' },
     { name: 'GitHub', boardToken: 'github' },
+    { name: 'InMobi', boardToken: 'inmobi' },
+    { name: 'BrowserStack', boardToken: 'browserstack' },
+    { name: 'Hasura', boardToken: 'hasura' },
   ];
 
-  // Notable tech companies using Lever ATS
+  // Notable tech companies & startups using Lever ATS
   private leverCompanies = [
     { name: 'Atlassian', site: 'atlassian' },
     { name: 'Palantir', site: 'palantir' },
     { name: 'Coinbase', site: 'coinbase' },
+    { name: 'Clevertap', site: 'clevertap' },
+    { name: 'Slice', site: 'slice' },
+    { name: 'CoinSwitch', site: 'coinswitch' },
   ];
 
   protected async scrape(): Promise<RawScrapedJob[]> {

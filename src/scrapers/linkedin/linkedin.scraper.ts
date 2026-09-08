@@ -8,14 +8,21 @@ export class LinkedInScraper extends BaseScraper {
   public readonly name = 'LinkedIn Scraper';
   public readonly source = 'linkedin';
 
-  private keywords = ['software engineer', 'intern', 'marketing', 'frontend developer', 'data analyst'];
-  private locations = ['India', 'Remote', 'Bengaluru', 'Hyderabad'];
+  private keywords = [
+    'software engineer fresher',
+    'associate software engineer',
+    'graduate engineer trainee',
+    'junior frontend developer',
+    'marketing associate',
+    'junior data analyst',
+  ];
+  private locations = ['India', 'Bengaluru', 'Hyderabad', 'Pune', 'Remote'];
 
   protected async scrape(): Promise<RawScrapedJob[]> {
     const jobs: RawScrapedJob[] = [];
 
     // Iterate over top keywords
-    for (const keyword of this.keywords.slice(0, 3)) {
+    for (const keyword of this.keywords.slice(0, 4)) {
       for (const loc of this.locations.slice(0, 2)) {
         try {
           const fetched = await this.fetchGuestJobs(keyword, loc);
@@ -44,6 +51,7 @@ export class LinkedInScraper extends BaseScraper {
       location,
       start: 0,
       f_TPR: 'r86400', // Past 24 hours
+      f_E: '1,2',      // 1 = Internship, 2 = Entry level / Freshers
     };
 
     const headers = {

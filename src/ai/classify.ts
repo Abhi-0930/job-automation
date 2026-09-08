@@ -58,15 +58,18 @@ const SKILL_KEYWORDS = [
  */
 export async function classifyJob(title: string, description: string, location: string = ''): Promise<ClassificationResult> {
   const combinedText = `${title} ${description} ${location}`.toLowerCase();
+  const expInfo = extractExperience(combinedText, 'UNKNOWN' as JobCategory);
 
   // 1. Check Rule Engine
   for (const rule of CLASSIFICATION_RULES) {
     if (rule.regex.test(title)) {
       // Title match has highest confidence
+      const specificExp = extractExperience(combinedText, rule.category);
       return {
         category: rule.category,
         isRemote: combinedText.includes('remote') || combinedText.includes('work from home'),
-        experience: extractExperience(combinedText, rule.category),
+        experience: specificExp.label,
+        isFresherEligible: specificExp.isFresherEligible,
         skills: extractSkills(combinedText),
         confidence: 0.95,
         source: 'RULE',
@@ -77,10 +80,12 @@ export async function classifyJob(title: string, description: string, location: 
   // Check description with rule engine
   for (const rule of CLASSIFICATION_RULES) {
     if (rule.regex.test(description)) {
+      const specificExp = extractExperience(combinedText, rule.category);
       return {
         category: rule.category,
         isRemote: combinedText.includes('remote') || combinedText.includes('work from home'),
-        experience: extractExperience(combinedText, rule.category),
+        experience: specificExp.label,
+        isFresherEligible: specificExp.isFresherEligible,
         skills: extractSkills(combinedText),
         confidence: 0.8,
         source: 'RULE',
@@ -104,7 +109,8 @@ export async function classifyJob(title: string, description: string, location: 
   return {
     category: 'TECH', // Defaulting to Tech if unclassified
     isRemote: combinedText.includes('remote'),
-    experience: extractExperience(combinedText, 'TECH'),
+    experience: expInfo.label,
+    isFresherEligible: expInfo.isFresherEligible,
     skills: extractSkills(combinedText),
     confidence: 0.5,
     source: 'RULE',
@@ -112,13 +118,14 @@ export async function classifyJob(title: string, description: string, location: 
 }
 
 async function classifyWithDeepSeek(title: string, description: string): Promise<ClassificationResult | null> {
-  const systemPrompt = `You are a precision job classification AI for a WhatsApp job distribution community.
+  const systemPrompt = `You are a precision job classification AI for a WhatsApp job distribution community focused on Freshers and 0-1 year graduates.
 Analyze the job title and description and output JSON only with this structure:
 {
   "category": "TECH" | "NON_TECH" | "INTERNSHIP" | "GOVT" | "COHORT" | "REFERRAL",
   "subcategory": "Frontend" | "Backend" | "Marketing" | etc.,
   "isRemote": boolean,
-  "experience": "Freshers" | "0-2 Years" | "2-5 Years" | "5+ Years",
+  "experience": "Freshers" | "0-1 Years" | "2+ Years",
+  "isFresherEligible": boolean,
   "skills": ["Skill1", "Skill2"]
 }`;
 
@@ -144,7 +151,8 @@ Description: ${description.slice(0, 800)}`;
       category,
       subcategory: data.subcategory,
       isRemote: !!data.isRemote,
-      experience: data.experience || 'Freshers / 0-2 Years',
+      experience: data.experience || 'Freshers / 0-1 Yr',
+      isFresherEligible: data.isFresherEligible !== undefined ? !!data.isFresherEligible : true,
       skills: Array.isArray(data.skills) ? data.skills : [],
       confidence: 0.9,
       source: 'DEEPSEEK',
@@ -154,13 +162,26 @@ Description: ${description.slice(0, 800)}`;
   }
 }
 
-function extractExperience(text: string, category: JobCategory): string {
-  if (category === 'INTERNSHIP') return 'Students / Freshers';
-  if (/\b(fresher|freshers|0\s*-\s*1\s*year|entry level|graduate)\b/i.test(text)) return 'Freshers / 0-1 Yr';
-  if (/\b(1\s*-\s*3\s*years?|junior)\b/i.test(text)) return '1-3 Years';
-  if (/\b(3\s*-\s*5\s*years?|mid)\b/i.test(text)) return '3-5 Years';
-  if (/\b(5\+?\s*years?|senior|lead|principal)\b/i.test(text)) return '5+ Years (Senior)';
-  return 'Freshers / 0-2 Years';
+export function extractExperience(text: string, category: JobCategory): { label: string; isFresherEligible: boolean } {
+  // 1. Definite senior / experienced patterns (NOT eligible for 0-1 yr students)
+  const isSenior = /\b(senior|sr\.?|lead|principal|architect|staff engineer|director|vp|head of|manager|5\+?\s*years?|4\+?\s*years?|3\+?\s*years?|2\+?\s*years?|3\s*-\s*5\s*years?|2\s*-\s*4\s*years?)\b/i.test(text);
+
+  if (isSenior) {
+    return { label: '2+ Years (Experienced)', isFresherEligible: false };
+  }
+
+  // 2. Internship
+  if (category === 'INTERNSHIP' || /\b(intern|internship|summer intern|student trainee|apprentice|apprenticeship)\b/i.test(text)) {
+    return { label: 'Students / Freshers', isFresherEligible: true };
+  }
+
+  // 3. Explicit Fresher / 0-1 Yr
+  if (/\b(fresher|freshers|0\s*-\s*1\s*years?|0\s*to\s*1\s*years?|0-1\s*yr|entry\s*level|graduate\s*trainee|associate|junior|batch\s*2024|batch\s*2025|batch\s*2026)\b/i.test(text)) {
+    return { label: 'Freshers / 0-1 Yr', isFresherEligible: true };
+  }
+
+  // 4. Default for entry postings
+  return { label: 'Freshers / 0-1 Yr', isFresherEligible: true };
 }
 
 function extractSkills(text: string): string[] {

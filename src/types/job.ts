@@ -38,6 +38,7 @@ export interface ClassificationResult {
   subcategory?: string;
   isRemote?: boolean;
   experience?: string;
+  isFresherEligible?: boolean;
   skills?: string[];
   confidence: number;
   source: 'RULE' | 'DEEPSEEK';

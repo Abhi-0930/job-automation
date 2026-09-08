@@ -3,6 +3,9 @@ import { LinkedInScraper } from './linkedin/linkedin.scraper.js';
 import { InternshalaScraper } from './internshala/internshala.scraper.js';
 import { WellfoundScraper } from './wellfound/wellfound.scraper.js';
 import { CareersScraper } from './careers/careers.scraper.js';
+import { NaukriScraper } from './naukri/naukri.scraper.js';
+import { GovtJobsScraper } from './govt/govt.scraper.js';
+import { UnstopScraper } from './unstop/unstop.scraper.js';
 import { RawScrapedJob } from '../types/job.js';
 import { logger } from '../config/logger.js';
 
@@ -14,6 +17,9 @@ export class ScraperManager {
       new CareersScraper(),
       new InternshalaScraper(),
       new LinkedInScraper(),
+      new NaukriScraper(),
+      new GovtJobsScraper(),
+      new UnstopScraper(),
       new WellfoundScraper(),
     ];
   }

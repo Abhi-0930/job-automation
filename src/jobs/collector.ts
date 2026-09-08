@@ -101,7 +101,7 @@ export class JobCollector {
         // A. Classify (Rule Engine -> DeepSeek Fallback)
         const classification = await classifyJob(raw.title, raw.description, raw.location);
 
-        // B. Score (DeepSeek Scoring 1-100)
+        // B. Score (DeepSeek Scoring 1-100 & Fresher Eligibility)
         const scoring = await scoreJob({
           title: raw.title,
           company: raw.company,
@@ -109,6 +109,8 @@ export class JobCollector {
           description: raw.description,
           isRemote: classification.isRemote,
           category: classification.category,
+          experience: classification.experience,
+          isFresherEligible: classification.isFresherEligible,
         });
 
         // C. Generate WhatsApp Message

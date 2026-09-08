@@ -42,12 +42,17 @@ export class PublishingQueue {
 
     logger.info('📣 [PublishQueue] Fetching top %s jobs (score >= %d, limit: %d) for group "%s"', category, minScore, limit, groupName);
 
-    // Fetch top unposted scored jobs
+    // Fetch top unposted scored jobs (Strictly freshers & 0-1 year eligibility)
     const candidateJobs = await prisma.job.findMany({
       where: {
         category,
         score: { gte: minScore },
         status: { not: 'PUBLISHED' },
+        experience: {
+          not: {
+            contains: '2+ Years',
+          },
+        },
       },
       orderBy: [
         { score: 'desc' },

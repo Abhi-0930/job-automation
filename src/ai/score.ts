@@ -18,8 +18,19 @@ export async function scoreJob(params: {
   description: string;
   isRemote?: boolean;
   category?: string;
+  experience?: string;
+  isFresherEligible?: boolean;
 }): Promise<ScoringResult> {
-  const { title, company, location, description, isRemote, category } = params;
+  const { title, company, location, description, isRemote, category, experience, isFresherEligible } = params;
+
+  // STRICT FILTER: If job requires senior/experienced (>1 year), drop score below publishing threshold
+  if (isFresherEligible === false) {
+    return {
+      score: 35,
+      reasoning: 'Disqualified: Requires experienced candidate (>1 year). Community is focused on Freshers & 0-1 Yr graduates.',
+      fresherFriendlyScore: 0,
+    };
+  }
 
   // 1. Try DeepSeek AI Scoring
   if (deepSeekService.hasApiKey()) {
@@ -47,6 +58,7 @@ export async function scoreJob(params: {
     description,
     isRemote,
     category,
+    isFresherEligible,
   });
 }
 
@@ -112,30 +124,38 @@ function calculateHeuristicScore(job: {
   description: string;
   isRemote?: boolean;
   category?: string;
+  isFresherEligible?: boolean;
 }): ScoringResult {
   let score = 60; // Base score
   const companyLower = job.company.toLowerCase();
   const textLower = `${job.title} ${job.description} ${job.location}`.toLowerCase();
 
-  // 1. Company reputation (+15 to +25)
+  // 1. Freshers / 0-1 Year accessibility (+15 bonus)
+  if (
+    job.isFresherEligible ||
+    job.category === 'INTERNSHIP' ||
+    textLower.includes('fresher') ||
+    textLower.includes('intern') ||
+    textLower.includes('0-1') ||
+    textLower.includes('graduate trainee')
+  ) {
+    score += 15;
+  }
+
+  // 2. Company reputation (+10 to +20)
   if (TOP_TIER_COMPANIES.some((top) => companyLower.includes(top))) {
-    score += 25;
+    score += 20;
   } else if (companyLower.length > 2) {
     score += 10;
   }
 
-  // 2. Remote availability (+10)
+  // 3. Remote availability (+10)
   if (job.isRemote || textLower.includes('remote') || textLower.includes('work from home')) {
     score += 10;
   }
 
-  // 3. Freshers / Internship friendly (+10)
-  if (job.category === 'INTERNSHIP' || textLower.includes('fresher') || textLower.includes('intern')) {
-    score += 8;
-  }
-
-  // 4. High demand tech skills (+5)
-  if (/\b(react|typescript|python|golang|ai|devops|aws)\b/i.test(textLower)) {
+  // 4. High demand in-market skills (+5)
+  if (/\b(react|typescript|python|golang|ai|devops|aws|sql|node)\b/i.test(textLower)) {
     score += 5;
   }
 
@@ -144,6 +164,6 @@ function calculateHeuristicScore(job: {
 
   return {
     score: finalScore,
-    reasoning: `Calculated based on company standing (${job.company}), remote flexibility, and role demand.`,
+    reasoning: `High match for Freshers & 0-1 Year graduates: ${job.company} offering ${job.title} (${job.isRemote ? 'Remote' : job.location}).`,
   };
 }

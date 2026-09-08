@@ -44,14 +44,20 @@ async function runTests() {
   // ----------------------------------------------------
   console.log('\n🧠 2. Testing Classification Engine:');
   {
-    const techJob = await classifyJob('Senior Frontend Engineer (React/TypeScript)', 'Building scalable web applications');
-    assert(techJob.category === 'TECH', `Classified "Frontend Engineer" as TECH (got ${techJob.category})`);
+    const seniorTechJob = await classifyJob('Senior Frontend Engineer (5+ Years)', 'Lead team building scalable web apps');
+    assert(seniorTechJob.category === 'TECH', `Classified "Frontend Engineer" as TECH (got ${seniorTechJob.category})`);
+    assert(seniorTechJob.isFresherEligible === false, 'Senior 5+ Years job correctly marked as isFresherEligible = false');
+
+    const fresherTechJob = await classifyJob('Associate Software Engineer (0-1 Year / Freshers)', 'Looking for fresh graduates proficient in React');
+    assert(fresherTechJob.category === 'TECH', 'Classified Associate as TECH');
+    assert(fresherTechJob.isFresherEligible === true, 'Fresher job correctly marked as isFresherEligible = true');
 
     const internJob = await classifyJob('Software Engineering Intern', 'Summer 2026 internship for university students');
     assert(internJob.category === 'INTERNSHIP', `Classified "Software Engineering Intern" as INTERNSHIP (got ${internJob.category})`);
+    assert(internJob.isFresherEligible === true, 'Internship marked as isFresherEligible = true');
 
-    const nonTechJob = await classifyJob('Growth Marketing Manager', 'Driving customer acquisition and paid campaigns');
-    assert(nonTechJob.category === 'NON_TECH', `Classified "Growth Marketing Manager" as NON_TECH (got ${nonTechJob.category})`);
+    const nonTechJob = await classifyJob('Marketing Associate (Freshers)', 'Content creation and social media');
+    assert(nonTechJob.category === 'NON_TECH', `Classified "Marketing Associate" as NON_TECH (got ${nonTechJob.category})`);
 
     const govtJob = await classifyJob('UPSC Assistant Engineer Recruitment', 'Official government notification for engineering post');
     assert(govtJob.category === 'GOVT', `Classified "UPSC" as GOVT (got ${govtJob.category})`);
@@ -64,21 +70,31 @@ async function runTests() {
   }
 
   // ----------------------------------------------------
-  // TEST SUITE 3: Scoring Engine
+  // TEST SUITE 3: Scoring & Fresher Filtering Engine
   // ----------------------------------------------------
-  console.log('\n⭐ 3. Testing Scoring Engine:');
+  console.log('\n⭐ 3. Testing Scoring Engine & Fresher Disqualification:');
   {
-    const topTierScore = await scoreJob({
-      title: 'Backend Software Engineer',
-      company: 'Microsoft',
+    const seniorJobScore = await scoreJob({
+      title: 'Principal Software Engineer (8+ Yrs)',
+      company: 'Amazon',
       location: 'Hyderabad',
-      description: 'Building cloud infrastructure on Azure with Go and Kubernetes. Remote friendly.',
+      description: 'Senior leadership role with 8+ years experience required.',
+      isFresherEligible: false,
+    });
+    assert(seniorJobScore.score <= 40, `Senior job (>1 yr) disqualified with score <= 40 (got ${seniorJobScore.score})`);
+
+    const fresherScore = await scoreJob({
+      title: 'Junior Software Engineer (Freshers / 0-1 Yr)',
+      company: 'Razorpay',
+      location: 'Bengaluru',
+      description: 'Entry level role for 2024/2025 graduates with React and Node.js skills.',
       isRemote: true,
       category: 'TECH',
+      isFresherEligible: true,
     });
 
-    assert(topTierScore.score >= 70, `Top Tier company with remote score is >= 70 (got ${topTierScore.score})`);
-    assert(typeof topTierScore.reasoning === 'string' && topTierScore.reasoning.length > 0, 'Scoring contains explanatory reasoning');
+    assert(fresherScore.score >= 70, `Fresher job meets publishing threshold >= 70 (got ${fresherScore.score})`);
+    assert(typeof fresherScore.reasoning === 'string' && fresherScore.reasoning.length > 0, 'Scoring contains explanatory reasoning');
   }
 
   // ----------------------------------------------------
