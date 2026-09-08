@@ -8,70 +8,68 @@ export class UnstopScraper extends BaseScraper {
   public readonly name = 'Unstop Early Career Scraper';
   public readonly source = 'unstop';
 
-  private targetUrls = [
-    'https://unstop.com/jobs/freshers',
-    'https://unstop.com/jobs/software-engineer',
-    'https://unstop.com/internships',
+  private apiEndpoints = [
+    { url: 'https://unstop.com/api/public/opportunity/search-result?opportunity=jobs&per_page=25', isInternship: false },
+    { url: 'https://unstop.com/api/public/opportunity/search-result?opportunity=internships&per_page=25', isInternship: true },
   ];
 
   protected async scrape(): Promise<RawScrapedJob[]> {
     const jobs: RawScrapedJob[] = [];
 
-    for (const url of this.targetUrls) {
+    // 1. Try public JSON API
+    for (const endpoint of this.apiEndpoints) {
       try {
-        const fetched = await this.scrapeUnstopPage(url);
+        const fetched = await this.fetchUnstopApi(endpoint.url, endpoint.isInternship);
         jobs.push(...fetched);
-        await new Promise((resolve) => setTimeout(resolve, 1500));
       } catch (err) {
-        logger.warn('[Unstop] Failed scraping %s: %s', url, (err as Error).message);
+        logger.debug('[Unstop] API fetch error %s: %s', endpoint.url, (err as Error).message);
       }
     }
 
-    if (jobs.length === 0) {
-      return this.scrapeWithBrowser();
+    if (jobs.length > 0) {
+      logger.info('[Unstop] Collected %d opportunities via public API', jobs.length);
+      return jobs;
     }
 
-    return jobs;
+    // 2. Fallback to Browser scraping
+    return this.scrapeWithBrowser();
   }
 
-  private async scrapeUnstopPage(url: string): Promise<RawScrapedJob[]> {
+  private async fetchUnstopApi(url: string, isInternship: boolean): Promise<RawScrapedJob[]> {
     const headers = {
       'User-Agent':
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      Accept: 'application/json, text/plain, */*',
     };
 
-    const response = await axios.get(url, { headers, timeout: 15000 });
-    const $ = cheerio.load(response.data);
+    const response = await axios.get(url, { headers, timeout: 12000 });
+    const data = response.data?.data?.data || response.data?.data || [];
     const jobs: RawScrapedJob[] = [];
 
-    $('.opportunity-card, .job-card, [data-v-card], .single-job-card').each((_, el) => {
-      const title = $(el).find('h3, .title, .job-title').text().trim();
-      const company = $(el).find('.organisation-name, .company-name, .sub-title').text().trim();
-      const location = $(el).find('.location, .locations').text().trim() || 'India / Remote';
-      const link = $(el).find('a').attr('href') || '';
-      const salary = $(el).find('.salary, .stipend, .ctc').text().trim();
+    if (Array.isArray(data)) {
+      for (const item of data) {
+        const title = item.title || item.name || '';
+        const company = item.organisation?.name || item.organisation_name || 'Hiring Partner';
+        const slug = item.public_url || item.seo_url || `https://unstop.com/o/${item.id}`;
+        const fullUrl = slug.startsWith('http') ? slug : `https://unstop.com/${slug.startsWith('/') ? slug.slice(1) : slug}`;
+        const region = item.region || item.job_location || 'India / Remote';
+        const isRemote = String(region).toLowerCase().includes('remote') || String(region).toLowerCase().includes('online');
 
-      if (title && company && link) {
-        const fullUrl = link.startsWith('http') ? link : `https://unstop.com${link.startsWith('/') ? '' : '/'}${link}`;
-        const isRemote = location.toLowerCase().includes('remote') || location.toLowerCase().includes('online');
-
-        jobs.push({
-          source: this.source,
-          title,
-          company,
-          location: isRemote ? 'Remote / Online' : location,
-          description: `Early Career Opening at ${company}: ${title}. Location: ${location}. Salary/CTC: ${
-            salary || 'Competitive'
-          }. Apply directly on Unstop.`,
-          url: fullUrl,
-          salary: salary || undefined,
-          isRemote,
-          experience: 'Students / Freshers (0-1 Yr)',
-          metadata: { platform: 'unstop', ctc: salary },
-        });
+        if (title && fullUrl) {
+          jobs.push({
+            source: this.source,
+            title: isInternship && !title.toLowerCase().includes('intern') ? `${title} (Internship)` : title,
+            company,
+            location: isRemote ? 'Work From Home (Remote)' : String(region),
+            description: `${isInternship ? 'Internship' : 'Job'} at ${company}: ${title}. Location: ${region}. Apply on Unstop.`,
+            url: fullUrl,
+            isRemote,
+            experience: isInternship ? 'Students / Freshers' : 'Freshers / 0-1 Yr',
+            metadata: { unstopId: item.id, isInternship },
+          });
+        }
       }
-    });
+    }
 
     return jobs;
   }
