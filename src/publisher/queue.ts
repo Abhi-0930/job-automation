@@ -1,6 +1,7 @@
 import { prisma } from '../database/prisma.js';
 import { whatsAppPublisher } from './whatsapp.js';
 import { formatDailyDigestMessage } from '../ai/formatter.js';
+import { verifyJobApplicationActive } from '../jobs/verifier.js';
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 import { JobCategory } from '../types/job.js';
@@ -40,14 +41,14 @@ export class PublishingQueue {
     const groupName = this.getGroupNameForCategory(category);
     const minScore = env.MIN_SCORE_TO_PUBLISH;
 
-    logger.info('📣 [PublishQueue] Fetching top %s jobs (score >= %d, limit: %d) for group "%s"', category, minScore, limit, groupName);
+    logger.info('📣 [PublishQueue] Fetching top %s jobs (score >= %d, target: %d) for group "%s"', category, minScore, limit, groupName);
 
-    // Fetch top unposted scored jobs (Strictly freshers & 0-1 year eligibility)
+    // Fetch candidate pool (with buffer to filter out closed jobs)
     const candidateJobs = await prisma.job.findMany({
       where: {
         category,
         score: { gte: minScore },
-        status: { not: 'PUBLISHED' },
+        status: { notIn: ['PUBLISHED', 'ARCHIVED', 'FAILED'] },
         experience: {
           not: {
             contains: '2+ Years',
@@ -58,7 +59,7 @@ export class PublishingQueue {
         { score: 'desc' },
         { createdAt: 'desc' },
       ],
-      take: limit,
+      take: limit * 4,
     });
 
     if (candidateJobs.length === 0) {
@@ -66,17 +67,35 @@ export class PublishingQueue {
       return 0;
     }
 
-    logger.info('🚀 [PublishQueue] Found %d jobs to publish to "%s"', candidateJobs.length, groupName);
+    logger.info('🔍 [PublishQueue] Checking %d candidate jobs for active status before sending...', candidateJobs.length);
     let publishedCount = 0;
 
     for (const job of candidateJobs) {
-      const message = job.whatsappMessage || `${job.title} at ${job.company}\n${job.url}`;
+      if (publishedCount >= limit) break;
 
+      // 1. Live Pre-Flight Check: Verify application is still actively accepting submissions
+      const verification = await verifyJobApplicationActive(job.url);
+      if (!verification.isActive) {
+        logger.warn(
+          '🚫 [Verifier] Job "%s" at "%s" is CLOSED (%s). Archiving and skipping...',
+          job.title,
+          job.company,
+          verification.reason
+        );
+        await prisma.job.update({
+          where: { id: job.id },
+          data: { status: 'ARCHIVED' },
+        });
+        continue;
+      }
+
+      // 2. Format & Send WhatsApp message
+      const message = job.whatsappMessage || `${job.title} at ${job.company}\n${job.url}`;
       const result = await whatsAppPublisher.sendMessage(groupName, message);
 
       const status = result.success ? (env.DRY_RUN ? 'SIMULATED' : 'SUCCESS') : 'FAILED';
 
-      // Log publishing event
+      // 3. Log publishing event
       await prisma.publishLog.create({
         data: {
           jobId: job.id,
@@ -103,7 +122,7 @@ export class PublishingQueue {
       }
     }
 
-    logger.info('🎉 [PublishQueue] Published %d/%d %s jobs to "%s"', publishedCount, candidateJobs.length, category, groupName);
+    logger.info('🎉 [PublishQueue] Published %d active %s jobs to "%s"', publishedCount, category, groupName);
     return publishedCount;
   }
 
