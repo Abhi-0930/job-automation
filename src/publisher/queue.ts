@@ -43,35 +43,28 @@ export class PublishingQueue {
 
     logger.info('📣 [PublishQueue] Fetching top %s jobs (score >= %d, target: %d) for group "%s"', category, minScore, limit, groupName);
 
-    // Category-specific filters (Ensure Tech/Non-Tech never get internships)
-    const titleFilter =
-      category === 'INTERNSHIP'
-        ? {} // All jobs in INTERNSHIP category are valid
-        : {
-            not: {
-              contains: 'intern',
-              mode: 'insensitive' as const,
-            },
-          };
-
     // Fetch candidate pool (with buffer to filter out closed jobs)
-    const candidateJobs = await prisma.job.findMany({
+    const rawCandidates = await prisma.job.findMany({
       where: {
         category,
         score: { gte: minScore },
         status: { notIn: ['PUBLISHED', 'ARCHIVED', 'FAILED'] },
-        title: titleFilter,
-        experience: {
-          not: {
-            contains: '2+ Years',
-          },
-        },
       },
       orderBy: [
         { score: 'desc' },
         { createdAt: 'desc' },
       ],
-      take: limit * 4,
+      take: limit * 5,
+    });
+
+    const candidateJobs = rawCandidates.filter((job) => {
+      const isIntern = /\b(intern|internship|trainee|apprentice)\b/i.test(job.title);
+      if (category === 'INTERNSHIP') {
+        return isIntern || job.category === 'INTERNSHIP';
+      }
+      if (isIntern) return false;
+      if (job.experience && /2\+|3\+|4\+|5\+|senior|lead/i.test(job.experience)) return false;
+      return true;
     });
 
     if (candidateJobs.length === 0) {
