@@ -69,14 +69,13 @@ export class WhatsAppPublisher {
       await page.waitForTimeout(4000);
 
       logger.info('🎉 WhatsApp Web authenticated successfully! Session saved to: %s', this.sessionDir);
-
-      // Auto-sync session to cloud database for Render / VPS deployments
-      await backupSessionToCloud();
     } catch (error) {
       logger.error('❌ WhatsApp Web authentication timed out or failed: %s', (error as Error).message);
     } finally {
       await page.waitForTimeout(2000);
       await context.close().catch(() => {});
+      // Auto-sync session to cloud database after browser is closed and file locks are released
+      await backupSessionToCloud().catch(() => {});
     }
   }
 
