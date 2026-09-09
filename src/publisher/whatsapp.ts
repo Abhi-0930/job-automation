@@ -117,13 +117,20 @@ export class WhatsAppPublisher {
 
       await page.goto('https://web.whatsapp.com', { waitUntil: 'domcontentloaded' });
 
-      // 1. Check if QR code is shown (session expired)
+      // 1. Check if logged out or QR code is shown (session expired)
+      await page.waitForTimeout(2000);
+      if (page.url().includes('post_logout=1')) {
+        throw new Error(
+          'WhatsApp session was logged out (?post_logout=1). Please re-authenticate locally using `npm run auth:whatsapp` and sync to cloud using `npm run session:push`.'
+        );
+      }
+
       const qrSelector = 'canvas[aria-label="Scan this QR code to link a device"], div[data-ref], [data-testid="qrcode"]';
-      const isQrVisible = await page.waitForSelector(qrSelector, { timeout: 6000 }).catch(() => null);
+      const isQrVisible = await page.waitForSelector(qrSelector, { timeout: 4000 }).catch(() => null);
 
       if (isQrVisible) {
         throw new Error(
-          'WhatsApp session has expired or is not logged in. Please run `npm run auth:whatsapp` to rescan QR code.'
+          'WhatsApp session has expired or is not logged in. Please run `npm run auth:whatsapp` to rescan QR code and `npm run session:push`.'
         );
       }
 

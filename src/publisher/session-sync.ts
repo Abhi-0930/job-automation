@@ -30,7 +30,6 @@ export async function backupSessionToCloud(): Promise<boolean> {
       '--exclude="*/Cache/*"',
       '--exclude="*/Code Cache/*"',
       '--exclude="*/GPUCache/*"',
-      '--exclude="*/blob_storage/*"',
       '--exclude="*/Crashpad/*"',
       '--exclude="*Singleton*"',
     ].join(' ');
