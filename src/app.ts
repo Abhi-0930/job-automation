@@ -2,6 +2,7 @@ import http from 'http';
 import { connectDatabase, disconnectDatabase } from './database/prisma.js';
 import { schedulerService } from './scheduler/cron.js';
 import { jobCollector } from './jobs/collector.js';
+import { restoreSessionFromCloud } from './publisher/session-sync.js';
 import { logger } from './config/logger.js';
 import { env } from './config/env.js';
 
@@ -24,6 +25,9 @@ async function bootstrap() {
   const dbOk = await connectDatabase();
   if (!dbOk) {
     logger.error('Database connection failed. Please ensure PostgreSQL is running.');
+  } else {
+    // 1b. Restore WhatsApp Cloud Session
+    await restoreSessionFromCloud();
   }
 
   // 2. Start Cron Scheduler

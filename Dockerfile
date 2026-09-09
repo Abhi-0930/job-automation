@@ -4,16 +4,15 @@ FROM mcr.microsoft.com/playwright:v1.50.1-noble
 # Set working directory
 WORKDIR /app
 
-# Set Playwright paths
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-
 # Copy package files
 COPY package*.json ./
 COPY prisma ./prisma/
 
-# Install ALL dependencies (including devDependencies like TypeScript)
-RUN npm ci --include=dev
+# Install dependencies (including devDependencies like TypeScript)
+RUN npm install
+
+# Ensure exact matching Chromium binary is installed
+RUN npx playwright install chromium
 
 # Generate Prisma Client
 RUN npx prisma generate
