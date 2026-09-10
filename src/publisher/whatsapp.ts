@@ -134,24 +134,14 @@ export class WhatsAppPublisher {
         );
       }
 
-      // 2. Wait for WhatsApp main interface to be ready (up to 90 seconds on cloud CPUs)
-      logger.info('⏳ Waiting for WhatsApp Web interface to load...');
-      const mainInterfaceSelectors = [
-        '#side',
-        '#pane-side',
-        'div[data-tab="3"]',
-        'input[data-tab="3"]',
-        'div[role="textbox"]',
-        'input[role="textbox"]',
-        'div[role="dialog"]',
-        'div[data-testid="chat-list"]',
-        '[aria-label*="Search"]',
-        '[aria-label*="Chat list"]',
-        'header',
-        '#app div[tabindex="-1"]',
-      ];
-      await page.waitForSelector(mainInterfaceSelectors.join(', '), { timeout: 90000 });
-      await page.waitForTimeout(2000);
+      // 2. If WhatsApp is showing "Loading your chats", wait for the progress bar to complete (up to 3 minutes)
+      const isSyncing = await page.waitForSelector('progress, [role="progressbar"], span:has-text("Loading your chats"), div:has-text("Loading your chats")', { timeout: 6000 }).catch(() => null);
+      if (isSyncing) {
+        logger.info('⏳ WhatsApp is downloading & decrypting chats ("Loading your chats")... Waiting for sync to finish...');
+        await page.waitForSelector('progress, [role="progressbar"], div:has-text("Loading your chats")', { state: 'detached', timeout: 180000 }).catch(() => {});
+        logger.info('✔ Chat download & decryption completed!');
+        await page.waitForTimeout(3000);
+      }
 
       // 2b. Auto-dismiss any "What's new" or introductory modal dialogs
       try {
@@ -169,8 +159,10 @@ export class WhatsAppPublisher {
       await page.keyboard.press('Escape').catch(() => {});
       await page.waitForTimeout(500);
 
-      // 3. Locate Search Box using broad multi-selector
+      // 3. Locate Search Box using broad multi-selector (up to 2 minutes)
+      logger.info('⏳ Waiting for WhatsApp Web search bar to become active...');
       const searchBoxSelectors = [
+        '#side div[contenteditable="true"]',
         '#side div[role="textbox"]',
         '#side input[role="textbox"]',
         'div[contenteditable="true"][data-tab="3"]',
@@ -184,10 +176,12 @@ export class WhatsAppPublisher {
         '#side input',
       ];
 
-      const searchInput = await page.waitForSelector(searchBoxSelectors.join(', '), { timeout: 25000 }).catch(() => null);
+      const searchInput = await page.waitForSelector(searchBoxSelectors.join(', '), { timeout: 120000 }).catch(() => null);
 
       if (!searchInput) {
-        throw new Error('Could not find search input box on WhatsApp Web.');
+        const url = page.url();
+        const title = await page.title().catch(() => 'unknown');
+        throw new Error(`Could not find search input box on WhatsApp Web (URL: "${url}", Title: "${title}"). Chats may still be synchronizing.`);
       }
 
       // 4. Click Search Box and Type Group Name
