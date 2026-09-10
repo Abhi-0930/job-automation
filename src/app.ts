@@ -73,39 +73,57 @@ async function bootstrap() {
       const digestParam = parsedUrl.searchParams.get('digest');
       const limitParam = parseInt(parsedUrl.searchParams.get('limit') || '1', 10);
 
-      try {
-        if (digestParam === 'true' || digestParam === '1') {
-          logger.info('🌐 [/publish-now] Triggering on-demand Daily Digest...');
-          const success = await publishingQueue.publishDailyDigest();
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ action: 'digest', success }));
-          return;
-        }
+      const cat = (categoryParam || 'TECH').toUpperCase() as JobCategory;
+      const isDigest = digestParam === 'true' || digestParam === '1';
 
-        const cat = (categoryParam || 'TECH').toUpperCase() as JobCategory;
-        logger.info('🌐 [/publish-now] Triggering on-demand batch for category %s (limit: %d)...', cat, limitParam);
-        const count = await publishingQueue.publishCategoryBatch(cat, limitParam);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ action: 'publish', category: cat, publishedCount: count }));
-      } catch (err) {
-        logger.error('Error during on-demand publish: %s', (err as Error).message);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: (err as Error).message }));
-      }
+      // Send immediate response so Render / browser never times out with 502
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          status: 'initiated',
+          message: isDigest
+            ? 'Daily Digest generation started in background'
+            : `Publishing batch for ${cat} (limit: ${limitParam}) started in background`,
+          category: isDigest ? 'DIGEST' : cat,
+          timestamp: new Date().toISOString(),
+        })
+      );
+
+      // Execute publish process in background
+      setImmediate(async () => {
+        try {
+          if (isDigest) {
+            logger.info('🌐 [/publish-now] Background Daily Digest publishing started...');
+            await publishingQueue.publishDailyDigest();
+          } else {
+            logger.info('🌐 [/publish-now] Background batch publishing started for category %s (limit: %d)...', cat, limitParam);
+            await publishingQueue.publishCategoryBatch(cat, limitParam);
+          }
+        } catch (err) {
+          logger.error('Background error during on-demand publish: %s', (err as Error).message);
+        }
+      });
       return;
     }
 
     if (parsedUrl.pathname === '/collect-now') {
-      try {
-        logger.info('🌐 [/collect-now] Triggering on-demand scraping & ingestion...');
-        const summary = await jobCollector.collectAndProcess();
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ action: 'collect', summary }));
-      } catch (err) {
-        logger.error('Error during on-demand collect: %s', (err as Error).message);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: (err as Error).message }));
-      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          status: 'initiated',
+          message: 'Job scraping & ingestion started in background',
+          timestamp: new Date().toISOString(),
+        })
+      );
+
+      setImmediate(async () => {
+        try {
+          logger.info('🌐 [/collect-now] Background scraping & ingestion started...');
+          await jobCollector.collectAndProcess();
+        } catch (err) {
+          logger.error('Background error during on-demand collect: %s', (err as Error).message);
+        }
+      });
       return;
     }
 
