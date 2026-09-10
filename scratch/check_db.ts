@@ -16,11 +16,20 @@ async function main() {
   });
   console.log('Job category counts:', categoryCounts);
 
-  const latestError = await prisma.publishLog.findFirst({
-    where: { status: 'FAILED' },
+  const recentLogs = await prisma.publishLog.findMany({
     orderBy: { publishedAt: 'desc' },
+    take: 10,
   });
-  console.log('Full Latest Error:', latestError?.error);
+  console.log('Recent 10 Publish Logs:');
+  console.table(
+    recentLogs.map((l) => ({
+      group: l.groupName,
+      cat: l.category,
+      status: l.status,
+      error: l.error,
+      publishedAt: l.publishedAt.toISOString(),
+    }))
+  );
 
   await prisma.$disconnect();
 }
