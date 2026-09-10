@@ -2,6 +2,8 @@ import http from 'http';
 import { connectDatabase, disconnectDatabase } from './database/prisma.js';
 import { schedulerService } from './scheduler/cron.js';
 import { jobCollector } from './jobs/collector.js';
+import { publishingQueue } from './publisher/queue.js';
+import { JobCategory } from './types/job.js';
 import { restoreSessionFromCloud } from './publisher/session-sync.js';
 import { logger } from './config/logger.js';
 import { env } from './config/env.js';
@@ -41,15 +43,59 @@ async function bootstrap() {
     });
   }
 
-  // 4. Start Lightweight HTTP Server for Render Health Checks & Keep-Alive
-  const server = http.createServer((req, res) => {
-    if (req.url === '/health' || req.url === '/') {
+  // 4. Start Lightweight HTTP Server for Render Health Checks & On-Demand Actions
+  const server = http.createServer(async (req, res) => {
+    const parsedUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+
+    if (parsedUrl.pathname === '/health' || parsedUrl.pathname === '/') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok', uptime: process.uptime(), timestamp: new Date().toISOString() }));
-    } else {
-      res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('Not Found');
+      return;
     }
+
+    if (parsedUrl.pathname === '/publish-now') {
+      const categoryParam = parsedUrl.searchParams.get('category');
+      const digestParam = parsedUrl.searchParams.get('digest');
+      const limitParam = parseInt(parsedUrl.searchParams.get('limit') || '1', 10);
+
+      try {
+        if (digestParam === 'true' || digestParam === '1') {
+          logger.info('🌐 [/publish-now] Triggering on-demand Daily Digest...');
+          const success = await publishingQueue.publishDailyDigest();
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ action: 'digest', success }));
+          return;
+        }
+
+        const cat = (categoryParam || 'TECH').toUpperCase() as JobCategory;
+        logger.info('🌐 [/publish-now] Triggering on-demand batch for category %s (limit: %d)...', cat, limitParam);
+        const count = await publishingQueue.publishCategoryBatch(cat, limitParam);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ action: 'publish', category: cat, publishedCount: count }));
+      } catch (err) {
+        logger.error('Error during on-demand publish: %s', (err as Error).message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: (err as Error).message }));
+      }
+      return;
+    }
+
+    if (parsedUrl.pathname === '/collect-now') {
+      try {
+        logger.info('🌐 [/collect-now] Triggering on-demand scraping & ingestion...');
+        const summary = await jobCollector.collectAndProcess();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ action: 'collect', summary }));
+      } catch (err) {
+        logger.error('Error during on-demand collect: %s', (err as Error).message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: (err as Error).message }));
+      }
+      return;
+    }
+
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('Not Found');
   });
 
   server.listen(env.PORT, '0.0.0.0', () => {

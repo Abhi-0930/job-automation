@@ -109,15 +109,16 @@ export class WhatsAppPublisher {
           '--disable-gpu',
           '--disable-blink-features=AutomationControlled',
         ],
+        ignoreDefaultArgs: ['--enable-automation'],
       });
 
       page = context.pages()[0] || (await context.newPage());
-      page.setDefaultTimeout(60000);
+      page.setDefaultTimeout(90000);
 
       await page.goto('https://web.whatsapp.com', { waitUntil: 'domcontentloaded' });
 
       // 1. Check if logged out or QR code is shown (session expired)
-      await page.waitForTimeout(2000);
+      await page.waitForTimeout(3000);
       if (page.url().includes('post_logout=1')) {
         throw new Error(
           'WhatsApp session was logged out (?post_logout=1). Please re-authenticate locally using `npm run auth:whatsapp` and sync to cloud using `npm run session:push`.'
@@ -133,7 +134,7 @@ export class WhatsAppPublisher {
         );
       }
 
-      // 2. Wait for WhatsApp main interface to be ready
+      // 2. Wait for WhatsApp main interface to be ready (up to 90 seconds on cloud CPUs)
       logger.info('⏳ Waiting for WhatsApp Web interface to load...');
       const mainInterfaceSelectors = [
         '#side',
@@ -143,8 +144,13 @@ export class WhatsAppPublisher {
         'div[role="textbox"]',
         'input[role="textbox"]',
         'div[role="dialog"]',
+        'div[data-testid="chat-list"]',
+        '[aria-label*="Search"]',
+        '[aria-label*="Chat list"]',
+        'header',
+        '#app div[tabindex="-1"]',
       ];
-      await page.waitForSelector(mainInterfaceSelectors.join(', '), { timeout: 45000 });
+      await page.waitForSelector(mainInterfaceSelectors.join(', '), { timeout: 90000 });
       await page.waitForTimeout(2000);
 
       // 2b. Auto-dismiss any "What's new" or introductory modal dialogs
