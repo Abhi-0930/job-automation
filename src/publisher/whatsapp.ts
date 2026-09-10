@@ -98,8 +98,9 @@ export class WhatsAppPublisher {
     let page: Page | null = null;
 
     try {
+      const isHeadless = process.platform === 'linux' ? true : env.WHATSAPP_HEADLESS;
       context = await chromium.launchPersistentContext(this.sessionDir, {
-        headless: env.WHATSAPP_HEADLESS,
+        headless: isHeadless,
         userAgent: REALISTIC_USER_AGENT,
         viewport: { width: 1280, height: 800 },
         args: [

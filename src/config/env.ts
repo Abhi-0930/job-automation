@@ -21,29 +21,29 @@ const envSchema = z.object({
   WHATSAPP_MESSAGE_DELAY_MS: z.coerce.number().default(3500),
 
   // WhatsApp Groups
-  WHATSAPP_GROUP_TECH: z.string().default('💻 Tech Jobs'),
-  WHATSAPP_GROUP_INTERNSHIP: z.string().default('🎓 Internships'),
-  WHATSAPP_GROUP_NON_TECH: z.string().default('🏢 Non-Tech Jobs'),
-  WHATSAPP_GROUP_GOVT: z.string().default('🏛️ Government Jobs'),
-  WHATSAPP_GROUP_COHORT: z.string().default('📚 Cohorts & Upskilling'),
-  WHATSAPP_GROUP_REFERRAL: z.string().default('🤝 Referrals & Networking'),
-  WHATSAPP_GROUP_COMMUNITY: z.string().default("🔥 Today's Best Opportunities"),
+  WHATSAPP_GROUP_TECH: z.string().default('Tech Jobs'),
+  WHATSAPP_GROUP_INTERNSHIP: z.string().default('Internships'),
+  WHATSAPP_GROUP_NON_TECH: z.string().default('Non-Tech Jobs'),
+  WHATSAPP_GROUP_GOVT: z.string().default('Government Jobs'),
+  WHATSAPP_GROUP_COHORT: z.string().default('Cohorts & Upskilling'),
+  WHATSAPP_GROUP_REFERRAL: z.string().default('Referrals & Networking'),
+  WHATSAPP_GROUP_COMMUNITY: z.string().default('Daily Highlights'),
 
   // Publishing
   MIN_SCORE_TO_PUBLISH: z.coerce.number().default(70),
   MAX_JOBS_PER_BATCH: z.coerce.number().default(1),
 
-  // Crons (Test Window: 7:30 PM - 7:45 PM IST)
+  // Crons (Test Window: 7:45 PM - 7:50 PM IST)
   CRON_COLLECTION: z.string().default('*/15 * * * *'),
-  CRON_TECH: z.string().default('30 19 * * *'),
-  CRON_INTERNSHIP: z.string().default('33 19 * * *'),
-  CRON_NON_TECH: z.string().default('36 19 * * *'),
-  CRON_GOVT: z.string().default('39 19 * * *'),
-  CRON_REFERRAL: z.string().default('42 19 * * *'),
-  CRON_DIGEST: z.string().default('45 19 * * *'),
+  CRON_TECH: z.string().default('45 19 * * *'),
+  CRON_INTERNSHIP: z.string().default('46 19 * * *'),
+  CRON_NON_TECH: z.string().default('47 19 * * *'),
+  CRON_GOVT: z.string().default('48 19 * * *'),
+  CRON_REFERRAL: z.string().default('49 19 * * *'),
+  CRON_DIGEST: z.string().default('50 19 * * *'),
 
   // Safety
-  DRY_RUN: z.preprocess((val) => val === 'true' || val === true, z.boolean()).default(true),
+  DRY_RUN: z.preprocess((val) => val === 'true' || val === true, z.boolean()).default(false),
 });
 
 const parsed = envSchema.safeParse(process.env);
