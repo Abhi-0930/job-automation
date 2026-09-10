@@ -1,4 +1,4 @@
-import { chromium, BrowserContext, Page } from 'playwright';
+import { chromium, BrowserContext, Page, ElementHandle } from 'playwright';
 import path from 'path';
 import fs from 'fs';
 import { env } from '../config/env.js';
@@ -128,7 +128,11 @@ export class WhatsAppPublisher {
 
       await page.goto('https://web.whatsapp.com', { waitUntil: 'domcontentloaded' });
 
-      // 1. Check if logged out or QR code is shown (session expired)
+      // 1. Wait for initial splash screen to clear
+      logger.info('⏳ Waiting for WhatsApp Web interface initialization...');
+      await page.waitForSelector('#app', { timeout: 45000 }).catch(() => {});
+
+      // 1b. Check if logged out or QR code is shown (session expired)
       await page.waitForTimeout(3000);
       if (page.url().includes('post_logout=1')) {
         throw new Error(
@@ -137,27 +141,37 @@ export class WhatsAppPublisher {
       }
 
       const qrSelector = 'canvas[aria-label="Scan this QR code to link a device"], div[data-ref], [data-testid="qrcode"]';
-      const isQrVisible = await page.waitForSelector(qrSelector, { timeout: 4000 }).catch(() => null);
-
+      const isQrVisible = await page.waitForSelector(qrSelector, { timeout: 3000 }).catch(() => null);
       if (isQrVisible) {
         throw new Error(
-          'WhatsApp session has expired or is not logged in. Please run `npm run auth:whatsapp` to rescan QR code and `npm run session:push`.'
+          'WhatsApp session has expired or is not logged in. Please run `npm run auth:whatsapp` locally to rescan QR code, then `npm run session:push`.'
         );
       }
 
-      // 2. If WhatsApp is showing "Loading your chats", wait for the progress bar to complete (up to 3 minutes)
-      const isSyncing = await page.waitForSelector('progress, [role="progressbar"], span:has-text("Loading your chats"), div:has-text("Loading your chats")', { timeout: 6000 }).catch(() => null);
-      if (isSyncing) {
-        logger.info('⏳ WhatsApp is downloading & decrypting chats ("Loading your chats")... Waiting for sync to finish...');
-        await page.waitForSelector('progress, [role="progressbar"], div:has-text("Loading your chats")', { state: 'detached', timeout: 180000 }).catch(() => {});
-        logger.info('✔ Chat download & decryption completed!');
+      // 2. Wait for chat synchronization screen to finish ("Loading your chats", "Connecting", progress bars)
+      logger.info('⏳ Checking for WhatsApp chat synchronization progress...');
+      const syncSelectors = [
+        'progress',
+        '[role="progressbar"]',
+        'div:has-text("Loading your chats")',
+        'span:has-text("Loading your chats")',
+        'div:has-text("Connecting")',
+        'div:has-text("Downloading messages")',
+      ];
+      
+      const syncElement = await page.waitForSelector(syncSelectors.join(', '), { timeout: 8000 }).catch(() => null);
+      if (syncElement) {
+        logger.info('🔄 WhatsApp is synchronizing chats with your phone. Waiting for sync to complete (up to 3 min)...');
+        await page.waitForSelector(syncSelectors.join(', '), { state: 'detached', timeout: 180000 }).catch(() => {
+          logger.warn('⚠️ Sync indicator took long, continuing with UI detection...');
+        });
         await page.waitForTimeout(3000);
       }
 
-      // 2b. Auto-dismiss any "What's new" or introductory modal dialogs
+      // 2b. Auto-dismiss modal dialogs / alerts
       try {
         const modalBtn = await page.$(
-          'div[role="dialog"] button:has-text("Continue"), div[role="dialog"] button:has-text("OK"), div[role="dialog"] button:has-text("Dismiss"), div[role="dialog"] [data-icon="x"], div[role="dialog"] [aria-label="Close"]'
+          'div[role="dialog"] button:has-text("Continue"), div[role="dialog"] button:has-text("OK"), div[role="dialog"] button:has-text("Dismiss"), div[role="dialog"] [data-icon="x"], div[role="dialog"] [aria-label="Close"], button:has-text("Use Here")'
         );
         if (modalBtn) {
           logger.info('👋 Dismissing WhatsApp Web modal dialog...');
@@ -165,48 +179,81 @@ export class WhatsAppPublisher {
           await page.waitForTimeout(1000);
         }
       } catch {
-        // Modal check is non-blocking
+        // Modal check non-blocking
       }
       await page.keyboard.press('Escape').catch(() => {});
       await page.waitForTimeout(500);
 
-      // 3. Locate Search Box using broad multi-selector (up to 2 minutes)
-      logger.info('⏳ Waiting for WhatsApp Web search bar to become active...');
+      // 3. Locate and activate Search Bar
+      logger.info('⏳ Locating WhatsApp search bar for group "%s"...', groupName);
+      
+      // Try clicking Search button/icon first if present
+      const searchButtonSelectors = [
+        'button[aria-label*="Search"]',
+        'button[title*="Search"]',
+        '[data-icon="search"]',
+        'div[data-testid="chat-list-search"]',
+        '#side button[aria-label*="Search"]',
+      ];
+      const searchBtn = await page.waitForSelector(searchButtonSelectors.join(', '), { timeout: 3000 }).catch(() => null);
+      if (searchBtn) {
+        await searchBtn.click({ force: true }).catch(() => {});
+        await page.waitForTimeout(400);
+      }
+
+      // Trigger search focus keyboard shortcut as fallback
+      await page.keyboard.press('Control+Alt+/').catch(() => {});
+      await page.waitForTimeout(300);
+
       const searchBoxSelectors = [
         '#side div[contenteditable="true"]',
         '#side div[role="textbox"]',
         '#side input[role="textbox"]',
+        '#side input[type="text"]',
         'div[contenteditable="true"][data-tab="3"]',
         'input[data-tab="3"]',
         'div[title="Search input textbox"]',
         'div[data-testid="chat-list-search"]',
         'input[aria-label*="Search"]',
         'div[aria-label*="Search"]',
+        '[aria-label*="Search or start new chat"]',
         '[aria-label*="Search or start a new chat"]',
-        '[aria-label*="Search"]',
+        'div[role="textbox"][title*="Search"]',
         '#side input',
+        '#pane-side div[contenteditable="true"]',
       ];
 
-      const searchInput = await page.waitForSelector(searchBoxSelectors.join(', '), { timeout: 120000 }).catch(() => null);
+      let searchInput: ElementHandle<SVGElement | HTMLElement> | null = null;
+      for (let attempt = 1; attempt <= 15; attempt++) {
+        searchInput = await page.waitForSelector(searchBoxSelectors.join(', '), { timeout: 8000 }).catch(() => null);
+        if (searchInput) break;
+        
+        logger.info('   ...waiting for chat list search box (attempt %d/15)...', attempt);
+        await page.keyboard.press('Escape').catch(() => {});
+        await page.waitForTimeout(2000);
+        await page.keyboard.press('Control+Alt+/').catch(() => {});
+      }
 
       if (!searchInput) {
         const url = page.url();
         const title = await page.title().catch(() => 'unknown');
-        throw new Error(`Could not find search input box on WhatsApp Web (URL: "${url}", Title: "${title}"). Chats may still be synchronizing.`);
+        const bodySnippet = await page.evaluate(() => document.body.innerText.slice(0, 300)).catch(() => 'unavailable');
+        throw new Error(
+          `Could not find search input box on WhatsApp Web (URL: "${url}", Title: "${title}", Visible Text: "${bodySnippet.replace(/\n+/g, ' ')}"). Chats may still be synchronizing.`
+        );
       }
 
-      // 4. Click Search Box and Type Group Name
+      // 4. Type Group Name into Search Box
       await searchInput.click({ force: true });
       await page.waitForTimeout(400);
       try {
         await searchInput.fill('');
       } catch {
-        // Fallback for contenteditable divs
         await page.keyboard.press('Control+A');
         await page.keyboard.press('Backspace');
       }
-      await page.keyboard.type(groupName, { delay: 50 });
-      await page.waitForTimeout(2500);
+      await page.keyboard.type(groupName, { delay: 60 });
+      await page.waitForTimeout(3000);
 
       // 5. Locate and click target group from search results
       const sanitizedName = groupName.replace(/[^\w\s]/gi, '').trim();
