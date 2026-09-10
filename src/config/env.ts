@@ -33,14 +33,14 @@ const envSchema = z.object({
   MIN_SCORE_TO_PUBLISH: z.coerce.number().default(70),
   MAX_JOBS_PER_BATCH: z.coerce.number().default(1),
 
-  // Crons (Test Window: 6:40 PM - 6:45 PM IST)
+  // Crons (Test Window: 7:30 PM - 7:45 PM IST)
   CRON_COLLECTION: z.string().default('*/15 * * * *'),
-  CRON_TECH: z.string().default('40 18 * * *'),
-  CRON_INTERNSHIP: z.string().default('41 18 * * *'),
-  CRON_NON_TECH: z.string().default('42 18 * * *'),
-  CRON_GOVT: z.string().default('43 18 * * *'),
-  CRON_REFERRAL: z.string().default('44 18 * * *'),
-  CRON_DIGEST: z.string().default('45 18 * * *'),
+  CRON_TECH: z.string().default('30 19 * * *'),
+  CRON_INTERNSHIP: z.string().default('33 19 * * *'),
+  CRON_NON_TECH: z.string().default('36 19 * * *'),
+  CRON_GOVT: z.string().default('39 19 * * *'),
+  CRON_REFERRAL: z.string().default('42 19 * * *'),
+  CRON_DIGEST: z.string().default('45 19 * * *'),
 
   // Safety
   DRY_RUN: z.preprocess((val) => val === 'true' || val === true, z.boolean()).default(true),
