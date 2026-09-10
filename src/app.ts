@@ -23,33 +23,48 @@ async function bootstrap() {
   logger.info('  🔥 Community:   "%s"', env.WHATSAPP_GROUP_COMMUNITY);
   logger.info('====================================================');
 
-  // 1. Connect to Database
-  const dbOk = await connectDatabase();
-  if (!dbOk) {
-    logger.error('Database connection failed. Please ensure PostgreSQL is running.');
-  } else {
-    // 1b. Restore WhatsApp Cloud Session
-    await restoreSessionFromCloud();
-  }
+  const port = process.env.PORT ? parseInt(process.env.PORT, 10) : env.PORT;
 
-  // 2. Start Cron Scheduler
-  schedulerService.start();
+  // 1. Start Lightweight HTTP Server IMMEDIATELY for Render Health Checks & Keep-Alive
+  let dbReady = false;
+  let sessionReady = false;
 
-  // 3. Run an initial quick collection on startup if in development mode
-  if (env.NODE_ENV === 'development' && dbOk) {
-    logger.info('🔄 [Startup] Running initial collection cycle...');
-    jobCollector.collectAndProcess().catch((err) => {
-      logger.warn('Initial startup collection encountered error: %s', (err as Error).message);
-    });
-  }
-
-  // 4. Start Lightweight HTTP Server for Render Health Checks & On-Demand Actions
   const server = http.createServer(async (req, res) => {
     const parsedUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
 
     if (parsedUrl.pathname === '/health' || parsedUrl.pathname === '/') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'ok', uptime: process.uptime(), timestamp: new Date().toISOString() }));
+      res.end(
+        JSON.stringify({
+          status: 'ok',
+          uptime: process.uptime(),
+          dbReady,
+          sessionReady,
+          timestamp: new Date().toISOString(),
+        })
+      );
+      return;
+    }
+
+    if (parsedUrl.pathname === '/status') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          status: 'online',
+          uptime: process.uptime(),
+          dbReady,
+          sessionReady,
+          crons: {
+            tech: env.CRON_TECH,
+            internship: env.CRON_INTERNSHIP,
+            nonTech: env.CRON_NON_TECH,
+            govt: env.CRON_GOVT,
+            referral: env.CRON_REFERRAL,
+            digest: env.CRON_DIGEST,
+          },
+          timestamp: new Date().toISOString(),
+        })
+      );
       return;
     }
 
@@ -98,9 +113,30 @@ async function bootstrap() {
     res.end('Not Found');
   });
 
-  server.listen(env.PORT, '0.0.0.0', () => {
-    logger.info('🌐 Health check server listening on port %d (http://0.0.0.0:%d/health)', env.PORT, env.PORT);
+  server.listen(port, '0.0.0.0', () => {
+    logger.info('🌐 Health check server listening on port %d (http://0.0.0.0:%d/health)', port, port);
   });
+
+  // 2. Connect to Database & Restore Session
+  const dbOk = await connectDatabase();
+  if (!dbOk) {
+    logger.error('Database connection failed. Please ensure PostgreSQL is running.');
+  } else {
+    dbReady = true;
+    // Restore WhatsApp Cloud Session
+    sessionReady = await restoreSessionFromCloud();
+  }
+
+  // 3. Start Cron Scheduler
+  schedulerService.start();
+
+  // 4. Run an initial quick collection on startup if in development mode
+  if (env.NODE_ENV === 'development' && dbOk) {
+    logger.info('🔄 [Startup] Running initial collection cycle...');
+    jobCollector.collectAndProcess().catch((err) => {
+      logger.warn('Initial startup collection encountered error: %s', (err as Error).message);
+    });
+  }
 
   // 5. Graceful Shutdown Handlers
   const handleShutdown = async (signal: string) => {
