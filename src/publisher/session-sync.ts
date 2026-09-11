@@ -49,6 +49,11 @@ export async function backupSessionToCloud(): Promise<boolean> {
 
     logger.info('☁️ Uploading session archive (%d KB, %d chunks) to Neon DB...', Math.round(buffer.length / 1024), chunkCount);
 
+    // Delete any old or orphaned chunk records first
+    await prisma.sessionBackup.deleteMany({
+      where: { key: { startsWith: `${SESSION_KEY}_chunk_` } },
+    });
+
     // Upload chunks in concurrent batches of 4
     const concurrency = 4;
     for (let i = 0; i < chunkCount; i += concurrency) {
@@ -130,26 +135,32 @@ export async function restoreSessionFromCloud(force: boolean = false): Promise<b
 
       logger.info('📥 Fetching %d session chunks from database (Cloud Version: %s)...', chunkCount, cloudTimestamp);
 
-      // Fetch all chunk records in one query
-      const chunkRecords = await prisma.sessionBackup.findMany({
-        where: {
-          key: {
-            startsWith: `${SESSION_KEY}_chunk_`,
-          },
-        },
-      });
+      // Fetch chunks in batches of 5 to avoid single large buffer latency
+      const chunks: string[] = new Array(chunkCount);
+      const batchSize = 5;
+      for (let i = 0; i < chunkCount; i += batchSize) {
+        const batchKeys: string[] = [];
+        const max = Math.min(i + batchSize, chunkCount);
+        for (let j = i; j < max; j++) {
+          batchKeys.push(`${SESSION_KEY}_chunk_${j}`);
+        }
 
-      const chunkMap = new Map<string, string>();
-      for (const rec of chunkRecords) {
-        chunkMap.set(rec.key, rec.data);
+        const records = await prisma.sessionBackup.findMany({
+          where: { key: { in: batchKeys } },
+          select: { key: true, data: true },
+        });
+
+        for (const rec of records) {
+          const idx = parseInt(rec.key.replace(`${SESSION_KEY}_chunk_`, ''), 10);
+          chunks[idx] = rec.data;
+        }
       }
 
       for (let i = 0; i < chunkCount; i++) {
-        const chunk = chunkMap.get(`${SESSION_KEY}_chunk_${i}`);
-        if (!chunk) {
+        if (!chunks[i]) {
           throw new Error(`Missing session chunk ${i} of ${chunkCount} in database`);
         }
-        base64Data += chunk;
+        base64Data += chunks[i];
       }
     } else {
       // Fallback to legacy monolithic record if present
