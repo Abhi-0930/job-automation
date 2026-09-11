@@ -5,8 +5,12 @@ import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 import { backupSessionToCloud, restoreSessionFromCloud } from './session-sync.js';
 
-const REALISTIC_USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+const getRealisticUserAgent = () => {
+  if (process.platform === 'linux') {
+    return 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
+  }
+  return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
+};
 
 export class WhatsAppPublisher {
   private sessionDir: string;
@@ -23,16 +27,20 @@ export class WhatsAppPublisher {
    */
   private cleanStaleLocks(): void {
     try {
-      const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
+      const lockFiles = [
+        'SingletonLock',
+        'SingletonCookie',
+        'SingletonSocket',
+        'lockfile',
+      ];
       for (const file of lockFiles) {
-        const lockPath = path.join(this.sessionDir, file);
-        if (fs.existsSync(lockPath)) {
-          fs.unlinkSync(lockPath);
-          logger.debug('Removed stale lock: %s', lockPath);
+        const filePath = path.join(this.sessionDir, file);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
         }
       }
     } catch {
-      // ignore lock cleanup errors
+      // Ignore lock clean failures
     }
   }
 
@@ -41,12 +49,12 @@ export class WhatsAppPublisher {
    */
   public async interactiveAuth(): Promise<void> {
     this.cleanStaleLocks();
-    logger.info('📱 Launching WhatsApp Web for session authentication...');
+    logger.info('📱 Launching browser for WhatsApp Web authentication...');
     logger.info('👉 Please scan the QR code on your phone when the browser window opens.');
 
     const context = await chromium.launchPersistentContext(this.sessionDir, {
       headless: false,
-      userAgent: REALISTIC_USER_AGENT,
+      userAgent: getRealisticUserAgent(),
       viewport: { width: 1280, height: 800 },
       args: [
         '--no-sandbox',
@@ -56,7 +64,7 @@ export class WhatsAppPublisher {
     });
 
     const page = context.pages()[0] || (await context.newPage());
-    page.setDefaultTimeout(60000);
+    page.setDefaultTimeout(120000);
 
     await page.goto('https://web.whatsapp.com', { waitUntil: 'domcontentloaded' });
     logger.info('⏳ Waiting for WhatsApp Web pairing (up to 2 minutes)...');
@@ -101,7 +109,7 @@ export class WhatsAppPublisher {
       const isHeadless = process.platform === 'linux' ? true : env.WHATSAPP_HEADLESS;
       context = await chromium.launchPersistentContext(this.sessionDir, {
         headless: isHeadless,
-        userAgent: REALISTIC_USER_AGENT,
+        userAgent: getRealisticUserAgent(),
         viewport: { width: 1280, height: 800 },
         args: [
           '--no-sandbox',
@@ -146,6 +154,32 @@ export class WhatsAppPublisher {
         throw new Error(
           'WhatsApp session has expired or is not logged in. Please run `npm run auth:whatsapp` locally to rescan QR code, then `npm run session:push`.'
         );
+      }
+
+      // 1c. Bypass any "Download WhatsApp for Windows / Mac" promo screens or landing dialogs
+      try {
+        const promoBypassSelectors = [
+          'a:has-text("Use WhatsApp Web")',
+          'a:has-text("use WhatsApp in your browser")',
+          'a:has-text("Continue on Web")',
+          'a:has-text("Continue in browser")',
+          'a:has-text("Use in browser")',
+          'button:has-text("Use Here")',
+          'button:has-text("Continue on this browser")',
+          'div[role="button"]:has-text("Use Web")',
+          'span:has-text("Use WhatsApp Web")',
+        ];
+        for (const selector of promoBypassSelectors) {
+          const el = await page.$(selector);
+          if (el && (await el.isVisible().catch(() => false))) {
+            logger.info('👋 Bypassing WhatsApp promo banner via "%s"...', selector);
+            await el.click({ force: true }).catch(() => {});
+            await page.waitForTimeout(1500);
+            break;
+          }
+        }
+      } catch {
+        // Non-blocking
       }
 
       // 2. Wait for chat synchronization screen to finish ("Loading your chats", "Connecting", progress bars)
