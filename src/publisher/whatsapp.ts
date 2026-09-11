@@ -64,48 +64,26 @@ export class WhatsAppPublisher {
     });
 
     const page = context.pages()[0] || (await context.newPage());
-    page.setDefaultTimeout(180000);
+    page.setDefaultTimeout(120000);
 
     await page.goto('https://web.whatsapp.com', { waitUntil: 'domcontentloaded' });
-    logger.info('⏳ Waiting for WhatsApp Web pairing (up to 3 minutes)...');
-
-    let authSuccess = false;
+    logger.info('⏳ Waiting for WhatsApp Web pairing (up to 2 minutes)...');
 
     try {
-      // 1. Wait for pairing or chat UI to appear
       await page.waitForSelector(
         '#side, #pane-side, input[data-tab="3"], input[aria-label*="Search"], [aria-label="Chat list"]',
-        { timeout: 180000 }
+        { timeout: 120000 }
       );
+      await page.waitForTimeout(4000);
 
-      // 2. Wait for message download / chat sync if in progress
-      const syncSelectors = [
-        'progress',
-        '[role="progressbar"]',
-        'div:has-text("Loading your chats")',
-        'span:has-text("Loading your chats")',
-        'div:has-text("Connecting")',
-        'div:has-text("Downloading messages")',
-        'div:has-text("Your messages are downloading")',
-      ];
-      const syncEl = await page.waitForSelector(syncSelectors.join(', '), { timeout: 6000 }).catch(() => null);
-      if (syncEl) {
-        logger.info('🔄 Messages downloading from phone. Waiting for sync to complete...');
-        await page.waitForSelector(syncSelectors.join(', '), { state: 'detached', timeout: 180000 }).catch(() => {});
-      }
-
-      await page.waitForTimeout(6000);
-      authSuccess = true;
       logger.info('🎉 WhatsApp Web authenticated successfully! Session saved to: %s', this.sessionDir);
     } catch (error) {
       logger.error('❌ WhatsApp Web authentication timed out or failed: %s', (error as Error).message);
     } finally {
       await page.waitForTimeout(2000);
-      await context.close().catch(() => {});
-      if (authSuccess) {
-        // Auto-sync verified session to cloud database after browser is closed and locks are released
-        await backupSessionToCloud().catch(() => {});
-      }
+      await context.close().catch(() => { });
+      // Auto-sync session to cloud database after browser is closed and file locks are released
+      await backupSessionToCloud().catch(() => { });
     }
   }
 
@@ -160,12 +138,14 @@ export class WhatsAppPublisher {
 
       // 1. Wait for initial splash screen to clear
       logger.info('⏳ Waiting for WhatsApp Web interface initialization...');
-      await page.waitForSelector('#app', { timeout: 45000 }).catch(() => {});
+      await page.waitForSelector('#app', { timeout: 45000 }).catch(() => { });
 
       // 1b. Check if logged out or QR code is shown (session expired)
       await page.waitForTimeout(3000);
       if (page.url().includes('post_logout=1')) {
-        throw new Error('WhatsApp session has been logged out. Please re-authenticate locally.');
+        throw new Error(
+          'WhatsApp session was logged out (?post_logout=1). Please re-authenticate locally using `npm run auth:whatsapp` and sync to cloud using `npm run session:push`.'
+        );
       }
 
       const qrSelector = 'canvas[aria-label="Scan this QR code to link a device"], div[data-ref], [data-testid="qrcode"]';
@@ -193,7 +173,7 @@ export class WhatsAppPublisher {
           const el = await page.$(selector);
           if (el && (await el.isVisible().catch(() => false))) {
             logger.info('👋 Bypassing WhatsApp promo banner via "%s"...', selector);
-            await el.click({ force: true }).catch(() => {});
+            await el.click({ force: true }).catch(() => { });
             await page.waitForTimeout(1500);
             break;
           }
@@ -211,10 +191,8 @@ export class WhatsAppPublisher {
         'span:has-text("Loading your chats")',
         'div:has-text("Connecting")',
         'div:has-text("Downloading messages")',
-        'div:has-text("Your messages are downloading")',
-        'div:has-text("Don\'t close this window")',
       ];
-      
+
       const syncElement = await page.waitForSelector(syncSelectors.join(', '), { timeout: 8000 }).catch(() => null);
       if (syncElement) {
         logger.info('🔄 WhatsApp is synchronizing chats with your phone. Waiting for sync to complete (up to 3 min)...');
@@ -224,43 +202,57 @@ export class WhatsAppPublisher {
         await page.waitForTimeout(3000);
       }
 
-      // 2b. Auto-dismiss modal dialogs / alerts / "What's new" popups
+      // 2b. Auto-dismiss modal dialogs / alerts
       try {
         const modalBtn = await page.$(
-          'div[role="dialog"] button:has-text("Continue"), div[role="dialog"] button:has-text("OK"), div[role="dialog"] button:has-text("Dismiss"), div[role="dialog"] button:has-text("Got it"), div[role="dialog"] [data-icon="x"], div[role="dialog"] [aria-label="Close"], button:has-text("Use Here")'
+          'div[role="dialog"] button:has-text("Continue"), div[role="dialog"] button:has-text("OK"), div[role="dialog"] button:has-text("Dismiss"), div[role="dialog"] [data-icon="x"], div[role="dialog"] [aria-label="Close"], button:has-text("Use Here")'
         );
         if (modalBtn) {
           logger.info('👋 Dismissing WhatsApp Web modal dialog...');
-          await modalBtn.click({ force: true }).catch(() => {});
+          await modalBtn.click({ force: true }).catch(() => { });
           await page.waitForTimeout(1000);
         }
       } catch {
         // Modal check non-blocking
       }
-      await page.keyboard.press('Escape').catch(() => {});
+      await page.keyboard.press('Escape').catch(() => { });
       await page.waitForTimeout(500);
 
       // 3. Locate and activate Search Bar
       logger.info('⏳ Locating WhatsApp search bar for group "%s"...', groupName);
-      
+
       const searchBoxSelectors = [
         'input[aria-label*="Search"]',
         'input[type="text"][aria-label*="Search"]',
-        'input[type="text"]',
-        'input[data-tab="3"]',
-        'input[role="textbox"]',
-        'div[title="Search input textbox"]',
+        '#side input[type="text"]',
         '#side input',
+        'input[data-tab="3"]',
+        '#side div[contenteditable="true"]',
+        '#side div[role="textbox"]',
+        '#side input[role="textbox"]',
+        'div[contenteditable="true"][data-tab="3"]',
+        'div[title="Search input textbox"]',
+        'div[data-testid="chat-list-search"]',
+        'div[aria-label*="Search"]',
+        '[aria-label*="Search or start new chat"]',
+        '[aria-label*="Search or start a new chat"]',
+        'div[role="textbox"][title*="Search"]',
+        '#pane-side div[contenteditable="true"]',
       ];
 
       let searchInput: ElementHandle<SVGElement | HTMLElement> | null = null;
-      for (let attempt = 1; attempt <= 10; attempt++) {
-        searchInput = await page.waitForSelector(searchBoxSelectors.join(', '), { timeout: 6000 }).catch(() => null);
+      for (let attempt = 1; attempt <= 15; attempt++) {
+        searchInput = await page.waitForSelector(searchBoxSelectors.join(', '), { timeout: 4000 }).catch(() => null);
         if (searchInput) break;
-        
-        logger.info('   ...waiting for chat list search box (attempt %d/10)...', attempt);
-        await page.keyboard.press('Escape').catch(() => {});
-        await page.waitForTimeout(1500);
+
+        logger.info('   ...waiting for chat list search box (attempt %d/15)...', attempt);
+
+        // Try clicking search button if search input isn't visible yet
+        const searchBtn = await page.$('button[aria-label*="Search"], [data-icon="search"], div[data-testid="chat-list-search"]');
+        if (searchBtn) {
+          await searchBtn.click({ force: true }).catch(() => { });
+        }
+        await page.waitForTimeout(1000);
       }
 
       if (!searchInput) {
@@ -366,7 +358,7 @@ export class WhatsAppPublisher {
 
       const sendBtn = await page.waitForSelector('button[data-testid="compose-btn-send"], span[data-icon="send"], button[aria-label="Send"]', { timeout: 2000 }).catch(() => null);
       if (sendBtn) {
-        await sendBtn.click({ force: true }).catch(() => {});
+        await sendBtn.click({ force: true }).catch(() => { });
       }
 
       // 9. Wait for WhatsApp to transition from Pending (clock icon) to Sent (checkmark)
@@ -379,8 +371,8 @@ export class WhatsAppPublisher {
         // If send button is still visible, message may still be in input box, retry enter/click
         const lingeringSendBtn = await page.$('button[data-testid="compose-btn-send"], span[data-icon="send"]');
         if (lingeringSendBtn) {
-          await lingeringSendBtn.click({ force: true }).catch(() => {});
-          await page.keyboard.press('Enter').catch(() => {});
+          await lingeringSendBtn.click({ force: true }).catch(() => { });
+          await page.keyboard.press('Enter').catch(() => { });
         }
 
         const deliveryStatus = await page.evaluate(() => {
@@ -430,14 +422,14 @@ export class WhatsAppPublisher {
       logger.error('❌ Failed to send WhatsApp message to "%s": %s', groupName, errMsg);
 
       if (page) {
-        await page.screenshot({ path: './data/wa_error.png' }).catch(() => {});
+        await page.screenshot({ path: './data/wa_error.png' }).catch(() => { });
         logger.info('📸 Saved error screenshot to ./data/wa_error.png');
       }
 
       return { success: false, error: errMsg };
     } finally {
       if (context) {
-        await context.close().catch(() => {});
+        await context.close().catch(() => { });
       }
     }
   }

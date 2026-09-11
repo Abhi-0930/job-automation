@@ -1,6 +1,4 @@
 import http from 'http';
-import fs from 'fs';
-import path from 'path';
 import { connectDatabase, disconnectDatabase } from './database/prisma.js';
 import { schedulerService } from './scheduler/cron.js';
 import { jobCollector } from './jobs/collector.js';
@@ -126,42 +124,6 @@ async function bootstrap() {
           logger.error('Background error during on-demand collect: %s', (err as Error).message);
         }
       });
-      return;
-    }
-
-    if (parsedUrl.pathname === '/session-pull') {
-      const force = parsedUrl.searchParams.get('force') === 'true' || parsedUrl.searchParams.get('force') === '1';
-      logger.info('🌐 [/session-pull] Manual cloud session pull requested (force=%s)...', force);
-      const ok = await restoreSessionFromCloud(force);
-      sessionReady = ok;
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          status: ok ? 'success' : 'failed',
-          sessionReady: ok,
-          timestamp: new Date().toISOString(),
-        })
-      );
-      return;
-    }
-
-    if (parsedUrl.pathname === '/logs') {
-      try {
-        const logDir = path.resolve(process.cwd(), 'logs');
-        let lines: string[] = [];
-        if (fs.existsSync(logDir)) {
-          const files = fs.readdirSync(logDir).filter((f) => f.startsWith('app-')).sort().reverse();
-          if (files.length > 0) {
-            const content = fs.readFileSync(path.join(logDir, files[0]), 'utf-8');
-            lines = content.trim().split('\n').slice(-100);
-          }
-        }
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ lines, timestamp: new Date().toISOString() }));
-      } catch (err) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: (err as Error).message }));
-      }
       return;
     }
 
