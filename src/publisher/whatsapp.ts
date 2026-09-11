@@ -243,51 +243,24 @@ export class WhatsAppPublisher {
       // 3. Locate and activate Search Bar
       logger.info('⏳ Locating WhatsApp search bar for group "%s"...', groupName);
       
-      // Try clicking Search button/icon first if present
-      const searchButtonSelectors = [
-        'button[aria-label*="Search"]',
-        'button[title*="Search"]',
-        '[data-icon="search"]',
-        'div[data-testid="chat-list-search"]',
-        '#side button[aria-label*="Search"]',
-      ];
-      const searchBtn = await page.waitForSelector(searchButtonSelectors.join(', '), { timeout: 3000 }).catch(() => null);
-      if (searchBtn) {
-        await searchBtn.click({ force: true }).catch(() => {});
-        await page.waitForTimeout(400);
-      }
-
-      // Trigger search focus keyboard shortcut as fallback
-      await page.keyboard.press('Control+Alt+/').catch(() => {});
-      await page.waitForTimeout(300);
-
       const searchBoxSelectors = [
-        '#side div[contenteditable="true"]',
-        '#side div[role="textbox"]',
-        '#side input[role="textbox"]',
-        '#side input[type="text"]',
-        'div[contenteditable="true"][data-tab="3"]',
-        'input[data-tab="3"]',
-        'div[title="Search input textbox"]',
-        'div[data-testid="chat-list-search"]',
         'input[aria-label*="Search"]',
-        'div[aria-label*="Search"]',
-        '[aria-label*="Search or start new chat"]',
-        '[aria-label*="Search or start a new chat"]',
-        'div[role="textbox"][title*="Search"]',
+        'input[type="text"][aria-label*="Search"]',
+        'input[type="text"]',
+        'input[data-tab="3"]',
+        'input[role="textbox"]',
+        'div[title="Search input textbox"]',
         '#side input',
-        '#pane-side div[contenteditable="true"]',
       ];
 
       let searchInput: ElementHandle<SVGElement | HTMLElement> | null = null;
-      for (let attempt = 1; attempt <= 15; attempt++) {
-        searchInput = await page.waitForSelector(searchBoxSelectors.join(', '), { timeout: 8000 }).catch(() => null);
+      for (let attempt = 1; attempt <= 10; attempt++) {
+        searchInput = await page.waitForSelector(searchBoxSelectors.join(', '), { timeout: 6000 }).catch(() => null);
         if (searchInput) break;
         
-        logger.info('   ...waiting for chat list search box (attempt %d/15)...', attempt);
+        logger.info('   ...waiting for chat list search box (attempt %d/10)...', attempt);
         await page.keyboard.press('Escape').catch(() => {});
-        await page.waitForTimeout(2000);
-        await page.keyboard.press('Control+Alt+/').catch(() => {});
+        await page.waitForTimeout(1500);
       }
 
       if (!searchInput) {
