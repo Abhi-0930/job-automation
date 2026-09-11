@@ -6,9 +6,10 @@ import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 
 const SESSION_KEY = 'whatsapp_web_session';
+const CHUNK_SIZE = 1024 * 1024; // 1MB chunks to stay well within PgBouncer / Postgres query buffers
 
 /**
- * Backs up local WhatsApp session folder into Neon database as compressed base64.
+ * Backs up local WhatsApp session folder into Neon database as compressed base64 chunks.
  */
 export async function backupSessionToCloud(): Promise<boolean> {
   const sessionDir = path.resolve(process.cwd(), env.WHATSAPP_SESSION_PATH);
@@ -22,7 +23,6 @@ export async function backupSessionToCloud(): Promise<boolean> {
 
   try {
     logger.info('📦 Compressing WhatsApp session for cloud sync...');
-    // Create lightweight tarball excluding cache, shader, and crash files
     const parentDir = path.dirname(sessionDir);
     const baseDir = path.basename(sessionDir);
 
@@ -30,24 +30,57 @@ export async function backupSessionToCloud(): Promise<boolean> {
       '--exclude="*/Cache/*"',
       '--exclude="*/Code Cache/*"',
       '--exclude="*/GPUCache/*"',
+      '--exclude="*/DawnCache/*"',
+      '--exclude="*/CacheStorage/*"',
+      '--exclude="*/ScriptCache/*"',
       '--exclude="*/Crashpad/*"',
       '--exclude="*Singleton*"',
+      '--exclude="*/chrome_debug.log"',
+      '--exclude="*/History*"',
+      '--exclude="*/Favicons*"',
     ].join(' ');
 
     execSync(`tar -czf "${tempTarPath}" ${excludeFlags} -C "${parentDir}" "${baseDir}"`, { stdio: 'pipe' });
 
     const buffer = fs.readFileSync(tempTarPath);
     const base64Data = buffer.toString('base64');
+    const totalLength = base64Data.length;
+    const chunkCount = Math.ceil(totalLength / CHUNK_SIZE);
 
-    logger.info('☁️ Uploading session archive (%d KB) to Neon DB...', Math.round(buffer.length / 1024));
+    logger.info('☁️ Uploading session archive (%d KB, %d chunks) to Neon DB...', Math.round(buffer.length / 1024), chunkCount);
 
-    await prisma.sessionBackup.upsert({
-      where: { key: SESSION_KEY },
-      update: { data: base64Data },
-      create: { key: SESSION_KEY, data: base64Data },
+    // Upload chunks in concurrent batches of 4
+    const concurrency = 4;
+    for (let i = 0; i < chunkCount; i += concurrency) {
+      const batch = [];
+      for (let j = i; j < Math.min(i + concurrency, chunkCount); j++) {
+        const chunkData = base64Data.slice(j * CHUNK_SIZE, (j + 1) * CHUNK_SIZE);
+        const chunkKey = `${SESSION_KEY}_chunk_${j}`;
+        batch.push(
+          prisma.sessionBackup.upsert({
+            where: { key: chunkKey },
+            update: { data: chunkData },
+            create: { key: chunkKey, data: chunkData },
+          })
+        );
+      }
+      await Promise.all(batch);
+    }
+
+    // Save session metadata
+    const metaData = JSON.stringify({
+      chunkCount,
+      totalBytes: buffer.length,
+      updatedAt: new Date().toISOString(),
     });
 
-    logger.info('🎉 WhatsApp session successfully backed up to cloud database!');
+    await prisma.sessionBackup.upsert({
+      where: { key: `${SESSION_KEY}_meta` },
+      update: { data: metaData },
+      create: { key: `${SESSION_KEY}_meta`, data: metaData },
+    });
+
+    logger.info('🎉 WhatsApp session successfully backed up to cloud database (%d chunks)!', chunkCount);
     return true;
   } catch (error) {
     logger.error('Failed to backup WhatsApp session to cloud: %s', (error as Error).message);
@@ -73,13 +106,51 @@ export async function restoreSessionFromCloud(): Promise<boolean> {
 
   try {
     logger.info('🔍 Checking cloud database for saved WhatsApp session...');
-    const record = await prisma.sessionBackup.findUnique({
-      where: { key: SESSION_KEY },
+    
+    // 1. Check for chunked metadata
+    const metaRecord = await prisma.sessionBackup.findUnique({
+      where: { key: `${SESSION_KEY}_meta` },
     });
 
-    if (!record || !record.data) {
-      logger.info('ℹ️ No cloud WhatsApp session backup found in database.');
-      return false;
+    let base64Data = '';
+
+    if (metaRecord && metaRecord.data) {
+      const meta = JSON.parse(metaRecord.data);
+      const chunkCount: number = meta.chunkCount;
+      logger.info('📥 Fetching %d session chunks from database...', chunkCount);
+
+      // Fetch all chunk records in one query
+      const chunkRecords = await prisma.sessionBackup.findMany({
+        where: {
+          key: {
+            startsWith: `${SESSION_KEY}_chunk_`,
+          },
+        },
+      });
+
+      const chunkMap = new Map<string, string>();
+      for (const rec of chunkRecords) {
+        chunkMap.set(rec.key, rec.data);
+      }
+
+      for (let i = 0; i < chunkCount; i++) {
+        const chunk = chunkMap.get(`${SESSION_KEY}_chunk_${i}`);
+        if (!chunk) {
+          throw new Error(`Missing session chunk ${i} of ${chunkCount} in database`);
+        }
+        base64Data += chunk;
+      }
+    } else {
+      // Fallback to legacy monolithic record if present
+      const legacyRecord = await prisma.sessionBackup.findUnique({
+        where: { key: SESSION_KEY },
+      });
+
+      if (!legacyRecord || !legacyRecord.data) {
+        logger.info('ℹ️ No cloud WhatsApp session backup found in database.');
+        return false;
+      }
+      base64Data = legacyRecord.data;
     }
 
     const dataDir = path.resolve(process.cwd(), 'data');
@@ -88,7 +159,7 @@ export async function restoreSessionFromCloud(): Promise<boolean> {
     }
 
     const tempTarPath = path.resolve(dataDir, 'restore_temp.tar.gz');
-    const buffer = Buffer.from(record.data, 'base64');
+    const buffer = Buffer.from(base64Data, 'base64');
     fs.writeFileSync(tempTarPath, buffer);
 
     logger.info('📥 Extracting cloud session archive (%d KB)...', Math.round(buffer.length / 1024));
