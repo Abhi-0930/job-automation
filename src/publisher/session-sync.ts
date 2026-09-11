@@ -93,16 +93,11 @@ export async function backupSessionToCloud(): Promise<boolean> {
 }
 
 /**
- * Restores WhatsApp session from Neon database if local session is missing or empty.
+ * Restores WhatsApp session from Neon database if local session is missing or cloud version is newer.
  */
-export async function restoreSessionFromCloud(): Promise<boolean> {
+export async function restoreSessionFromCloud(force: boolean = false): Promise<boolean> {
   const sessionDir = path.resolve(process.cwd(), env.WHATSAPP_SESSION_PATH);
-
-  // If already exists and has files, skip
-  if (fs.existsSync(sessionDir) && fs.readdirSync(sessionDir).length > 2) {
-    logger.debug('Local WhatsApp session exists. Skipping cloud restore.');
-    return true;
-  }
+  const metaFilePath = path.join(sessionDir, '.cloud_meta');
 
   try {
     logger.info('🔍 Checking cloud database for saved WhatsApp session...');
@@ -113,11 +108,27 @@ export async function restoreSessionFromCloud(): Promise<boolean> {
     });
 
     let base64Data = '';
+    let cloudTimestamp = '';
 
     if (metaRecord && metaRecord.data) {
       const meta = JSON.parse(metaRecord.data);
+      cloudTimestamp = meta.updatedAt || metaRecord.updatedAt.toISOString();
       const chunkCount: number = meta.chunkCount;
-      logger.info('📥 Fetching %d session chunks from database...', chunkCount);
+
+      // Check if local session already matches cloud timestamp
+      if (!force && fs.existsSync(metaFilePath)) {
+        try {
+          const localMeta = JSON.parse(fs.readFileSync(metaFilePath, 'utf-8'));
+          if (localMeta.updatedAt === cloudTimestamp && fs.readdirSync(sessionDir).length > 3) {
+            logger.info('✅ Local WhatsApp session is up to date with cloud backup (%s). Skipping restore.', cloudTimestamp);
+            return true;
+          }
+        } catch {
+          // Re-restore if local meta is invalid
+        }
+      }
+
+      logger.info('📥 Fetching %d session chunks from database (Cloud Version: %s)...', chunkCount, cloudTimestamp);
 
       // Fetch all chunk records in one query
       const chunkRecords = await prisma.sessionBackup.findMany({
@@ -150,6 +161,7 @@ export async function restoreSessionFromCloud(): Promise<boolean> {
         logger.info('ℹ️ No cloud WhatsApp session backup found in database.');
         return false;
       }
+      cloudTimestamp = legacyRecord.updatedAt.toISOString();
       base64Data = legacyRecord.data;
     }
 
@@ -158,12 +170,29 @@ export async function restoreSessionFromCloud(): Promise<boolean> {
       fs.mkdirSync(dataDir, { recursive: true });
     }
 
+    // Clean old session folder before extracting fresh
+    if (fs.existsSync(sessionDir)) {
+      try {
+        fs.rmSync(sessionDir, { recursive: true, force: true });
+      } catch {
+        // Ignored
+      }
+    }
+
     const tempTarPath = path.resolve(dataDir, 'restore_temp.tar.gz');
     const buffer = Buffer.from(base64Data, 'base64');
     fs.writeFileSync(tempTarPath, buffer);
 
     logger.info('📥 Extracting cloud session archive (%d KB)...', Math.round(buffer.length / 1024));
     execSync(`tar -xzf "${tempTarPath}" -C "${dataDir}"`, { stdio: 'pipe' });
+
+    // Save cloud meta file locally
+    fs.mkdirSync(sessionDir, { recursive: true });
+    fs.writeFileSync(metaFilePath, JSON.stringify({ updatedAt: cloudTimestamp, restoredAt: new Date().toISOString() }));
+
+    if (fs.existsSync(tempTarPath)) {
+      fs.unlinkSync(tempTarPath);
+    }
 
     logger.info('🎉 WhatsApp session restored successfully from cloud database!');
     return true;

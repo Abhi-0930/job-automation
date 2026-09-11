@@ -127,6 +127,22 @@ async function bootstrap() {
       return;
     }
 
+    if (parsedUrl.pathname === '/session-pull') {
+      const force = parsedUrl.searchParams.get('force') === 'true' || parsedUrl.searchParams.get('force') === '1';
+      logger.info('🌐 [/session-pull] Manual cloud session pull requested (force=%s)...', force);
+      const ok = await restoreSessionFromCloud(force);
+      sessionReady = ok;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          status: ok ? 'success' : 'failed',
+          sessionReady: ok,
+          timestamp: new Date().toISOString(),
+        })
+      );
+      return;
+    }
+
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Not Found');
   });
