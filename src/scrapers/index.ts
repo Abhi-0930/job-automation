@@ -6,6 +6,9 @@ import { CareersScraper } from './careers/careers.scraper.js';
 import { NaukriScraper } from './naukri/naukri.scraper.js';
 import { GovtJobsScraper } from './govt/govt.scraper.js';
 import { UnstopScraper } from './unstop/unstop.scraper.js';
+import { NicheInternshipScraper } from './internships/niche.scraper.js';
+import { CuratedStartupJobsScraper } from './startups/curated.scraper.js';
+import { PublicFeedsScraper } from './remote/feed.scraper.js';
 import { RawScrapedJob } from '../types/job.js';
 import { logger } from '../config/logger.js';
 
@@ -15,11 +18,14 @@ export class ScraperManager {
   constructor() {
     this.scrapers = [
       new CareersScraper(),
+      new PublicFeedsScraper(),
       new InternshalaScraper(),
       new LinkedInScraper(),
       new NaukriScraper(),
       new GovtJobsScraper(),
       new UnstopScraper(),
+      new NicheInternshipScraper(),
+      new CuratedStartupJobsScraper(),
       new WellfoundScraper(),
     ];
   }
