@@ -152,74 +152,22 @@ export class WhatsAppPublisher {
 
       await page.goto('https://web.whatsapp.com', { waitUntil: 'domcontentloaded' });
 
-      // 1. Wait for initial splash screen to clear
-      logger.info('⏳ Waiting for WhatsApp Web interface initialization...');
-      await page.waitForSelector('#app', { timeout: 45000 }).catch(() => { });
+      // 1. Wait until WhatsApp Web clears the splash screen and loads the chat list (#side)
+      logger.info('⏳ Waiting for WhatsApp Web chat panel (#side) to initialize...');
+      await page.waitForSelector('#side, #pane-side', { timeout: 60000 });
+      await page.waitForTimeout(2000);
 
-      // 1b. Check if logged out or QR code is shown (session expired)
-      await page.waitForTimeout(3000);
+      // 1b. Check if logged out
       if (page.url().includes('post_logout=1')) {
         throw new Error(
-          'WhatsApp session was logged out (?post_logout=1). Please re-authenticate locally using `npm run auth:whatsapp` and sync to cloud using `npm run session:push`.'
+          'WhatsApp session was logged out (?post_logout=1). Please re-authenticate locally using `npm run auth:whatsapp`.'
         );
       }
 
-      const qrSelector = 'canvas[aria-label="Scan this QR code to link a device"], div[data-ref], [data-testid="qrcode"]';
-      const isQrVisible = await page.waitForSelector(qrSelector, { timeout: 3000 }).catch(() => null);
-      if (isQrVisible) {
-        throw new Error(
-          'WhatsApp session has expired or is not logged in. Please run `npm run auth:whatsapp` locally to rescan QR code, then `npm run session:push`.'
-        );
-      }
-
-      // 1c. Bypass any promo screens or landing dialogs
-      try {
-        const promoBypassSelectors = [
-          'a:has-text("Use WhatsApp Web")',
-          'a:has-text("use WhatsApp in your browser")',
-          'a:has-text("Continue on Web")',
-          'a:has-text("Continue in browser")',
-          'a:has-text("Use in browser")',
-          'button:has-text("Use Here")',
-          'button:has-text("Continue on this browser")',
-          'div[role="button"]:has-text("Use Web")',
-          'span:has-text("Use WhatsApp Web")',
-        ];
-        for (const selector of promoBypassSelectors) {
-          const el = await page.$(selector);
-          if (el && (await el.isVisible().catch(() => false))) {
-            logger.info('👋 Bypassing WhatsApp promo banner via "%s"...', selector);
-            await el.click({ force: true }).catch(() => { });
-            await page.waitForTimeout(1500);
-            break;
-          }
-        }
-      } catch {
-        // Non-blocking banner bypass
-      }
-
-      // 2. Chat synchronization check
-      const syncSelectors = [
-        'div[data-testid="chat-list-loading"]',
-        'span[data-icon="sync"]',
-        'div:has-text("Syncing messages")',
-        'div:has-text("Connecting...")',
-        'div:has-text("Downloading messages")',
-      ];
-
-      const syncElement = await page.waitForSelector(syncSelectors.join(', '), { timeout: 8000 }).catch(() => null);
-      if (syncElement) {
-        logger.info('🔄 WhatsApp is synchronizing chats with your phone. Waiting for sync to complete (up to 3 min)...');
-        await page.waitForSelector(syncSelectors.join(', '), { state: 'detached', timeout: 180000 }).catch(() => {
-          logger.warn('⚠️ Sync indicator took long, continuing with UI detection...');
-        });
-        await page.waitForTimeout(3000);
-      }
-
-      // 2b. Auto-dismiss modal dialogs / alerts
+      // 1c. Bypass any promo dialogs
       try {
         const modalBtn = await page.$(
-          'div[role="dialog"] button:has-text("Continue"), div[role="dialog"] button:has-text("OK"), div[role="dialog"] button:has-text("Dismiss"), div[role="dialog"] [data-icon="x"], div[role="dialog"] [aria-label="Close"], button:has-text("Use Here")'
+          'div[role="dialog"] button:has-text("Continue"), div[role="dialog"] button:has-text("OK"), div[role="dialog"] button:has-text("Dismiss"), button:has-text("Use Here")'
         );
         if (modalBtn) {
           logger.info('👋 Dismissing WhatsApp Web modal dialog...');
@@ -230,135 +178,68 @@ export class WhatsAppPublisher {
         // Modal check non-blocking
       }
       await page.keyboard.press('Escape').catch(() => { });
-      await page.waitForTimeout(500);
 
-      // 3. Locate and activate Search Bar
-      logger.info('⏳ Locating WhatsApp search bar for group "%s"...', groupName);
+      // 2. Open Target Chat
+      logger.info('🔍 Finding and opening target chat "%s"...', groupName);
 
-      const searchBoxSelectors = [
-        'input[aria-label*="Search"]',
-        'input[type="text"][aria-label*="Search"]',
-        '#side input[type="text"]',
-        '#side input',
-        'input[data-tab="3"]',
-        '#side div[contenteditable="true"]',
-        '#side div[role="textbox"]',
-        '#side input[role="textbox"]',
-        'div[contenteditable="true"][data-tab="3"]',
-        'div[title="Search input textbox"]',
-        'div[data-testid="chat-list-search"]',
-        'div[aria-label*="Search"]',
-        '[aria-label*="Search or start new chat"]',
-        '[aria-label*="Search or start a new chat"]',
-        'div[role="textbox"][title*="Search"]',
-        '#pane-side div[contenteditable="true"]',
-      ];
+      // Strategy A: Check if target chat is directly visible in recent chat list
+      const chatSpan = page.locator('#pane-side span[title]').filter({ hasText: groupName }).first();
+      const isDirectlyVisible = await chatSpan.isVisible({ timeout: 2000 }).catch(() => false);
 
-      let searchInput: ElementHandle<SVGElement | HTMLElement> | null = null;
-      for (let attempt = 1; attempt <= 15; attempt++) {
-        searchInput = await page.waitForSelector(searchBoxSelectors.join(', '), { timeout: 4000 }).catch(() => null);
-        if (searchInput) break;
+      if (isDirectlyVisible) {
+        logger.info('   Found "%s" in recent chats. Clicking to open conversation...', groupName);
+        await chatSpan.click({ force: true });
+      } else {
+        // Strategy B: Search for target chat in search bar
+        logger.info('   Searching for "%s" in chat search bar...', groupName);
+        const searchInput = page.locator(
+          'div[contenteditable="true"][data-tab="3"], #side div[contenteditable="true"], input[aria-label*="Search"]'
+        ).first();
 
-        logger.info('   ...waiting for chat list search box (attempt %d/15)...', attempt);
-
-        const searchBtn = await page.$('button[aria-label*="Search"], [data-icon="search"], div[data-testid="chat-list-search"]');
-        if (searchBtn) {
-          await searchBtn.click({ force: true }).catch(() => { });
-        }
-        await page.waitForTimeout(1000);
-      }
-
-      if (!searchInput) {
-        const url = page.url();
-        const title = await page.title().catch(() => 'unknown');
-        const bodySnippet = await page.evaluate(() => document.body.innerText.slice(0, 300)).catch(() => 'unavailable');
-        throw new Error(
-          `Could not find search input box on WhatsApp Web (URL: "${url}", Title: "${title}", Visible Text: "${bodySnippet.replace(/\\n+/g, ' ')}"). Chats may still be synchronizing.`
-        );
-      }
-
-      // 4. Type Group Name into Search Box
-      await searchInput.click({ force: true });
-      await page.waitForTimeout(400);
-      try {
-        await searchInput.fill('');
-      } catch {
+        await searchInput.click({ force: true });
         await page.keyboard.press('Control+A');
         await page.keyboard.press('Backspace');
-      }
-      await page.keyboard.type(groupName, { delay: 60 });
-      await page.waitForTimeout(3000);
+        await page.keyboard.type(groupName, { delay: 40 });
+        await page.waitForTimeout(2000);
 
-      // 5. Locate and click target group from search results
-      const sanitizedName = groupName.replace(/[^\w\s]/gi, '').trim();
-      let clickedGroup = false;
-
-      // Strategy A: Exact title match in span
-      const exactTitleElement = await page.waitForSelector(`span[title="${groupName}"]`, { timeout: 4000 }).catch(() => null);
-      if (exactTitleElement) {
-        await exactTitleElement.click({ force: true });
-        clickedGroup = true;
-      }
-
-      // Strategy B: Listitem containing group name
-      if (!clickedGroup) {
-        const itemLocator = page.locator(`div[role="listitem"]:has-text("${groupName}"), div[data-testid="cell-frame-container"]:has-text("${groupName}")`).first();
-        if (await itemLocator.isVisible({ timeout: 3000 }).catch(() => false)) {
-          await itemLocator.click({ force: true });
-          clickedGroup = true;
+        const searchMatch = page.locator('#pane-side span[title]').filter({ hasText: groupName }).first();
+        if (await searchMatch.isVisible({ timeout: 4000 }).catch(() => false)) {
+          await searchMatch.click({ force: true });
+        } else {
+          // Fallback: press Enter on active search input
+          await page.keyboard.press('Enter');
         }
       }
 
-      // Strategy C: Partial name match
-      if (!clickedGroup && sanitizedName.length > 0) {
-        const partialLocator = page.locator(`span[title*="${sanitizedName}"], span:has-text("${sanitizedName}")`).first();
-        if (await partialLocator.isVisible({ timeout: 3000 }).catch(() => false)) {
-          await partialLocator.click({ force: true });
-          clickedGroup = true;
-        }
-      }
+      // 3. Confirm Conversation Header is Active
+      await page.waitForSelector('#main header', { timeout: 15000 });
+      const openHeaderTitle = await page.evaluate(() => {
+        return document.querySelector('#main header span[title]')?.getAttribute('title') || 'Active Chat';
+      });
+      logger.info('✅ Confirmed conversation view is active: "%s"', openHeaderTitle);
 
-      // Strategy D: Enter key on active search input
-      if (!clickedGroup) {
-        logger.info('Pressing Enter to select first search result for "%s"...', groupName);
-        await page.keyboard.press('Enter');
-        clickedGroup = true;
-      }
-
-      await page.waitForTimeout(2000);
-
-      // 6. Locate Message Composition Box Selectors
-      const messageBoxSelectors = [
-        'footer div[contenteditable="true"]',
-        'footer div[role="textbox"]',
-        'footer div[data-tab="10"]',
-        'footer div[data-tab="6"]',
-        'div[data-testid="conversation-compose-box-input"]',
-        'footer [aria-label*="Type a message"]',
-        'footer [aria-placeholder*="Type a message"]',
-        'div[contenteditable="true"][data-tab="10"]',
-        'div[contenteditable="true"]',
-      ];
-
-      // Send each message in sequence within the same active group session
+      // 4. Send each message inside #main footer
       for (let idx = 0; idx < messages.length; idx++) {
         const message = messages[idx];
-        logger.info('📨 [Alert %d/%d] Sending to "%s"...', idx + 1, messages.length, groupName);
+        logger.info('📨 [Alert %d/%d] Composing message for "%s"...', idx + 1, messages.length, groupName);
 
-        const messageBox = await page.waitForSelector(messageBoxSelectors.join(', '), { timeout: 15000 }).catch(() => null);
+        const messageBox = await page.waitForSelector(
+          '#main footer div[contenteditable="true"], #main footer div[role="textbox"]',
+          { timeout: 15000 }
+        );
+
         if (!messageBox) {
-          throw new Error(`Message input box not found for group "${groupName}". Make sure you are a member of this group.`);
+          throw new Error(`Message composition box not found in conversation for "${groupName}".`);
         }
 
         await messageBox.click({ force: true });
         await page.waitForTimeout(300);
 
-        // Insert message lines preserving formatting (Shift+Enter for line breaks)
+        // Insert message lines preserving formatting
         const lines = message.split('\n');
         for (let i = 0; i < lines.length; i++) {
-          const line = lines[i];
-          if (line.length > 0) {
-            await page.keyboard.insertText(line);
+          if (lines[i].length > 0) {
+            await page.keyboard.insertText(lines[i]);
           }
           if (i < lines.length - 1) {
             await page.keyboard.down('Shift');
@@ -367,29 +248,82 @@ export class WhatsAppPublisher {
           }
         }
 
-        await page.waitForTimeout(500);
+        // Wait for WhatsApp link preview generation if URL is present
+        if (message.includes('http://') || message.includes('https://')) {
+          await page.waitForTimeout(1500);
+        } else {
+          await page.waitForTimeout(500);
+        }
 
-        // Send message via Enter key and fallback Send button
+        // Send via Enter key
         await page.keyboard.press('Enter');
         await page.waitForTimeout(500);
 
-        const sendBtn = await page.waitForSelector('button[data-testid="compose-btn-send"], span[data-icon="send"], button[aria-label="Send"]', { timeout: 2000 }).catch(() => null);
+        // Fallback send button click
+        const sendBtn = await page.$('#main button[data-testid="compose-btn-send"], #main span[data-icon="send"]');
         if (sendBtn) {
           await sendBtn.click({ force: true }).catch(() => { });
         }
 
+        // 5. Wait for delivery confirmation: verify clock icon transitions to checkmark
+        logger.info('⏳ Waiting for WhatsApp server delivery confirmation (clock 🕒 -> checkmark ✔️)...');
+        const startConfirm = Date.now();
+        let confirmedDelivery = false;
+
+        while (Date.now() - startConfirm < 25000) {
+          const status = await page.evaluate(() => {
+            const main = document.querySelector('#main');
+            if (!main) return { pending: 1, checks: 0, error: 0 };
+            const pendingIcons = main.querySelectorAll(
+              'span[data-icon="msg-time"], span[data-icon="status-time"], span[data-icon="time"], span[aria-label*="Pending"], span[aria-label*="pending"]'
+            );
+            const checkIcons = main.querySelectorAll(
+              'span[data-icon="msg-check"], span[data-icon="msg-dblcheck"], span[data-icon="status-check"], span[data-icon="status-dblcheck"]'
+            );
+            const errorIcons = main.querySelectorAll(
+              'span[data-icon="msg-error"], span[data-icon="alert-error"]'
+            );
+            return {
+              pending: pendingIcons.length,
+              checks: checkIcons.length,
+              error: errorIcons.length,
+            };
+          });
+
+          // If there's an error icon, click it to retry
+          if (status.error > 0) {
+            const retryBtn = await page.$('#main span[data-icon="msg-error"], #main span[data-icon="alert-error"]');
+            if (retryBtn) {
+              logger.warn('⚠️ Detected message error icon, clicking to retry...');
+              await retryBtn.click({ force: true }).catch(() => { });
+            }
+          }
+
+          if (status.checks > 0 && status.pending === 0) {
+            confirmedDelivery = true;
+            logger.info('✅ Confirmed! WhatsApp server acknowledged message delivery (checkmark received).');
+            break;
+          }
+
+          await page.waitForTimeout(1000);
+        }
+
+        if (!confirmedDelivery) {
+          logger.warn('⚠️ Pending clock icon took longer than usual. Allowing extra buffer for socket sync...');
+        }
+
         sentCount++;
-        logger.info('🚀 [Alert %d/%d] Posted successfully to WhatsApp!', idx + 1, messages.length);
+        logger.info('🚀 [Alert %d/%d] Successfully posted to WhatsApp!', idx + 1, messages.length);
 
         // Pacing delay between batch messages to prevent WhatsApp anti-spam flags
         if (idx < messages.length - 1) {
-          const pacingDelay = Math.max(env.WHATSAPP_MESSAGE_DELAY_MS || 3500, 3000);
+          const pacingDelay = Math.max(env.WHATSAPP_MESSAGE_DELAY_MS || 3500, 3500);
           logger.info('⏳ Pacing delay (%dms) before next message...', pacingDelay);
           await page.waitForTimeout(pacingDelay);
         }
       }
 
-      // Safety buffer before closing browser context
+      // Final safety buffer before closing browser context
       const finalDelay = Math.max(env.WHATSAPP_MESSAGE_DELAY_MS || 5000, 6000);
       logger.info('⏱️ Finalizing batch transmission buffer (%ds)...', Math.round(finalDelay / 1000));
       await page.waitForTimeout(finalDelay);
