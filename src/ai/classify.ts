@@ -67,6 +67,7 @@ export async function classifyJob(title: string, description: string, location: 
       category: 'INTERNSHIP',
       isRemote: combinedText.includes('remote') || combinedText.includes('work from home'),
       experience: specificExp.label,
+      batchLine: specificExp.batchLine,
       isFresherEligible: true,
       skills: extractSkills(combinedText),
       confidence: 1.0,
@@ -81,6 +82,7 @@ export async function classifyJob(title: string, description: string, location: 
         category: rule.category,
         isRemote: combinedText.includes('remote') || combinedText.includes('work from home'),
         experience: specificExp.label,
+        batchLine: specificExp.batchLine,
         isFresherEligible: specificExp.isFresherEligible,
         skills: extractSkills(combinedText),
         confidence: 0.95,
@@ -97,6 +99,7 @@ export async function classifyJob(title: string, description: string, location: 
         category: rule.category,
         isRemote: combinedText.includes('remote') || combinedText.includes('work from home'),
         experience: specificExp.label,
+        batchLine: specificExp.batchLine,
         isFresherEligible: specificExp.isFresherEligible,
         skills: extractSkills(combinedText),
         confidence: 0.8,
@@ -110,6 +113,7 @@ export async function classifyJob(title: string, description: string, location: 
     try {
       const aiResult = await classifyWithDeepSeek(title, description);
       if (aiResult) {
+        aiResult.batchLine = expInfo.batchLine;
         return aiResult;
       }
     } catch (err) {
@@ -122,6 +126,7 @@ export async function classifyJob(title: string, description: string, location: 
     category: 'TECH', // Defaulting to Tech if unclassified
     isRemote: combinedText.includes('remote'),
     experience: expInfo.label,
+    batchLine: expInfo.batchLine,
     isFresherEligible: expInfo.isFresherEligible,
     skills: extractSkills(combinedText),
     confidence: 0.5,
@@ -174,26 +179,49 @@ Description: ${description.slice(0, 800)}`;
   }
 }
 
-export function extractExperience(text: string, category: JobCategory): { label: string; isFresherEligible: boolean } {
-  // 1. Definite senior / experienced patterns (NOT eligible for 0-1 yr students)
-  const isSenior = /\b(senior|sr\.?|lead|principal|architect|staff engineer|director|vp|head of|manager|5\+?\s*years?|4\+?\s*years?|3\+?\s*years?|2\+?\s*years?|3\s*-\s*5\s*years?|2\s*-\s*4\s*years?)\b/i.test(text);
+export function extractExperience(text: string, category: JobCategory): { label: string; isFresherEligible: boolean; batchLine: string } {
+  // 1. Definite senior / experienced patterns (>2 years, Senior, Lead, Staff, Principal, Manager, etc.)
+  const isSenior = /\b(senior|sr\.?\b|lead\b|principal|architect|staff\s*engineer|director|vp\b|head\s*of|manager|3\+?\s*years?|4\+?\s*years?|5\+?\s*years?|6\+?\s*years?|7\+?\s*years?|8\+?\s*years?|3\s*-\s*5\s*years?|3\s*to\s*5\s*years?|4\s*-\s*6\s*years?)\b/i.test(text);
 
   if (isSenior) {
-    return { label: '2+ Years (Experienced)', isFresherEligible: false };
+    return { label: '3+ Years (Experienced)', isFresherEligible: false, batchLine: 'Experienced Professionals' };
   }
 
-  // 2. Internship
+  // 2. Detect specific mentioned batches (2024, 2025, 2026, 2027, 2028, 2029, 2030)
+  const detectedBatches: string[] = [];
+  const batchMatches = text.match(/\b(202[4-9]|2030|batch\s*(?:of\s*)?['’]?(?:2[4-9]|30))\b/gi);
+  if (batchMatches) {
+    for (const m of batchMatches) {
+      const digits = m.replace(/[^0-9]/g, '');
+      const fullYear = digits.length === 2 ? `20${digits}` : digits;
+      if (!detectedBatches.includes(fullYear) && parseInt(fullYear, 10) >= 2024 && parseInt(fullYear, 10) <= 2030) {
+        detectedBatches.push(fullYear);
+      }
+    }
+  }
+
+  // 3. Internship (College Students: 2025, 2026, 2027, 2028, 2029, 2030)
   if (category === 'INTERNSHIP' || /\b(intern|internship|summer intern|student trainee|apprentice|apprenticeship)\b/i.test(text)) {
-    return { label: 'Students / Freshers', isFresherEligible: true };
+    const batches = detectedBatches.length > 0
+      ? detectedBatches.sort().join(', ')
+      : '2025, 2026, 2027, 2028, 2029, 2030 (College Students)';
+    return {
+      label: 'College Students & Interns',
+      isFresherEligible: true,
+      batchLine: `Batches ${batches}`,
+    };
   }
 
-  // 3. Explicit Fresher / 0-1 Yr
-  if (/\b(fresher|freshers|0\s*-\s*1\s*years?|0\s*to\s*1\s*years?|0-1\s*yr|entry\s*level|graduate\s*trainee|associate|junior|batch\s*2024|batch\s*2025|batch\s*2026)\b/i.test(text)) {
-    return { label: 'Freshers / 0-1 Yr', isFresherEligible: true };
-  }
+  // 4. Freshers & Early Career (0-2 Years: Batches 2024, 2025, 2026)
+  const batches = detectedBatches.length > 0
+    ? detectedBatches.sort().join(', ')
+    : '2024, 2025, 2026 & 0-2 Years Exp';
 
-  // 4. Default for entry postings
-  return { label: 'Freshers / 0-1 Yr', isFresherEligible: true };
+  return {
+    label: 'Freshers / 0-2 Years',
+    isFresherEligible: true,
+    batchLine: `Batches ${batches}`,
+  };
 }
 
 function extractSkills(text: string): string[] {
