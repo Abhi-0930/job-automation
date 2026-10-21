@@ -43,7 +43,7 @@ export class PublishingQueue {
 
     logger.info('📣 [PublishQueue] Fetching top %s jobs (score >= %d, target: %d) for group "%s"', category, minScore, limit, groupName);
 
-    // Fetch candidate pool (with buffer to filter out closed jobs)
+    // Fetch candidate pool (with buffer to filter out closed jobs and diversify companies)
     const rawCandidates = await prisma.job.findMany({
       where: {
         category,
@@ -54,10 +54,10 @@ export class PublishingQueue {
         { score: 'desc' },
         { createdAt: 'desc' },
       ],
-      take: limit * 5,
+      take: Math.max(limit * 15, 30),
     });
 
-    const candidateJobs = rawCandidates.filter((job) => {
+    const filteredCandidates = rawCandidates.filter((job) => {
       const isIntern = /\b(intern|internship|trainee|apprentice)\b/i.test(job.title);
       if (category === 'INTERNSHIP') {
         return isIntern || job.category === 'INTERNSHIP';
@@ -67,16 +67,48 @@ export class PublishingQueue {
       return true;
     });
 
-    if (candidateJobs.length === 0) {
+    if (filteredCandidates.length === 0) {
       logger.info('ℹ️ [PublishQueue] No unposted %s jobs found meeting criteria (score >= %d)', category, minScore);
       return 0;
     }
 
-    logger.info('🔍 [PublishQueue] Checking %d candidate jobs for active status before sending...', candidateJobs.length);
+    // Cooldown check: Find companies published in the last 24 hours for this category
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const recentLogs = await prisma.publishLog.findMany({
+      where: {
+        category,
+        status: { in: ['SUCCESS', 'SIMULATED'] },
+        publishedAt: { gte: oneDayAgo },
+      },
+      include: { job: { select: { company: true } } },
+    });
+
+    const recentlyPublishedCompanies = new Set(
+      recentLogs
+        .map((l) => l.job?.company?.trim().toLowerCase())
+        .filter((c): c is string => Boolean(c))
+    );
+
+    // Prioritize companies that haven't been published in the last 24h
+    const freshCompanyJobs = filteredCandidates.filter(
+      (j) => !recentlyPublishedCompanies.has(j.company.trim().toLowerCase())
+    );
+    const candidateJobs = freshCompanyJobs.length >= limit
+      ? freshCompanyJobs
+      : [...freshCompanyJobs, ...filteredCandidates.filter(j => recentlyPublishedCompanies.has(j.company.trim().toLowerCase()))];
+
+    logger.info('🔍 [PublishQueue] Checking %d candidate jobs for active status (diversifying companies)...', candidateJobs.length);
     let publishedCount = 0;
+    const seenCompaniesInBatch = new Set<string>();
 
     for (const job of candidateJobs) {
       if (publishedCount >= limit) break;
+
+      const normCompany = job.company.trim().toLowerCase();
+      // Ensure company diversity within the current batch
+      if (seenCompaniesInBatch.has(normCompany)) {
+        continue;
+      }
 
       // 1. Live Pre-Flight Check: Verify application is still actively accepting submissions
       const verification = await verifyJobApplicationActive(job.url);
@@ -121,13 +153,14 @@ export class PublishingQueue {
             publishedAt: new Date(),
           },
         });
+        seenCompaniesInBatch.add(normCompany);
         publishedCount++;
       } else {
         logger.error('Failed publishing job %s to %s: %s', job.id, groupName, result.error);
       }
     }
 
-    logger.info('🎉 [PublishQueue] Published %d active %s jobs to "%s"', publishedCount, category, groupName);
+    logger.info('🎉 [PublishQueue] Published %d active %s jobs to "%s" across %d companies', publishedCount, category, groupName, seenCompaniesInBatch.size);
     return publishedCount;
   }
 
@@ -141,26 +174,33 @@ export class PublishingQueue {
     const now = new Date();
     const todayStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 
-    // Fetch top 3 Tech, top 2 Internships, top 2 Non-Tech from the last 24h
+    // Helper to get distinct-company top picks
+    const getDistinctPicks = async (cat: JobCategory, targetCount: number) => {
+      const candidates = await prisma.job.findMany({
+        where: { category: cat, score: { gte: 65 } },
+        orderBy: [{ score: 'desc' }, { createdAt: 'desc' }],
+        take: targetCount * 5,
+        select: { title: true, company: true, location: true, url: true, score: true },
+      });
+
+      const distinct: typeof candidates = [];
+      const seen = new Set<string>();
+      for (const item of candidates) {
+        const norm = item.company.trim().toLowerCase();
+        if (!seen.has(norm)) {
+          seen.add(norm);
+          distinct.push(item);
+          if (distinct.length >= targetCount) break;
+        }
+      }
+      return distinct;
+    };
+
+    // Fetch top 3 Tech, top 2 Internships, top 2 Non-Tech from distinct companies
     const [techJobs, internships, nonTechJobs] = await Promise.all([
-      prisma.job.findMany({
-        where: { category: 'TECH', score: { gte: 65 } },
-        orderBy: [{ score: 'desc' }, { createdAt: 'desc' }],
-        take: 3,
-        select: { title: true, company: true, location: true, url: true, score: true },
-      }),
-      prisma.job.findMany({
-        where: { category: 'INTERNSHIP', score: { gte: 65 } },
-        orderBy: [{ score: 'desc' }, { createdAt: 'desc' }],
-        take: 2,
-        select: { title: true, company: true, location: true, url: true, score: true },
-      }),
-      prisma.job.findMany({
-        where: { category: 'NON_TECH', score: { gte: 65 } },
-        orderBy: [{ score: 'desc' }, { createdAt: 'desc' }],
-        take: 2,
-        select: { title: true, company: true, location: true, url: true, score: true },
-      }),
+      getDistinctPicks('TECH', 3),
+      getDistinctPicks('INTERNSHIP', 2),
+      getDistinctPicks('NON_TECH', 2),
     ]);
 
     const totalCount = techJobs.length + internships.length + nonTechJobs.length;
