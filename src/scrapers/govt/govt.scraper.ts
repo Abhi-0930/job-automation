@@ -4,129 +4,149 @@ import { BaseScraper } from '../base.scraper.js';
 import { RawScrapedJob } from '../../types/job.js';
 import { logger } from '../../config/logger.js';
 
+interface GovtFeed {
+  url: string;
+  publisher: string;
+  kind: 'freejobalert' | 'official';
+}
+
+const GOVT_FEEDS: GovtFeed[] = [
+  // Broad alert aggregator, retained as a discovery source.
+  { url: 'https://www.freejobalert.com/government-jobs/', publisher: 'FreeJobAlert', kind: 'freejobalert' },
+  { url: 'https://www.freejobalert.com/engineering-jobs/', publisher: 'FreeJobAlert', kind: 'freejobalert' },
+  { url: 'https://www.freejobalert.com/bank-jobs/', publisher: 'FreeJobAlert', kind: 'freejobalert' },
+  // Primary sources: verify vacancies and application details against the original notice.
+  { url: 'https://employmentnews.gov.in/NewEmp/AllJobs.aspx?k=All', publisher: 'Employment News', kind: 'official' },
+  { url: 'https://ncs.gov.in/latest-update', publisher: 'National Career Service', kind: 'official' },
+  { url: 'https://upsc.gov.in/recruitment/recruitment-advertisements', publisher: 'UPSC', kind: 'official' },
+  { url: 'https://ssc.gov.in/', publisher: 'SSC', kind: 'official' },
+  { url: 'https://rrcb.gov.in/', publisher: 'Railway Recruitment Control Board', kind: 'official' },
+];
+
+const REQUEST_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+};
+
 export class GovtJobsScraper extends BaseScraper {
   public readonly name = 'Government & PSU Jobs Scraper';
   public readonly source = 'govt';
 
-  private notificationFeeds = [
-    'https://www.freejobalert.com/government-jobs/',
-    'https://www.freejobalert.com/engineering-jobs/',
-    'https://www.freejobalert.com/bank-jobs/',
-  ];
-
   protected async scrape(): Promise<RawScrapedJob[]> {
-    const jobs: RawScrapedJob[] = [];
+    const allJobs: RawScrapedJob[] = [];
 
-    for (const url of this.notificationFeeds) {
+    // Fetch sources independently so one site being unavailable does not block the others.
+    for (const feed of GOVT_FEEDS) {
       try {
-        const fetched = await this.scrapeFeed(url);
-        jobs.push(...fetched);
-        await new Promise((resolve) => setTimeout(resolve, 1500));
+        const response = await axios.get(feed.url, { headers: REQUEST_HEADERS, timeout: 20000 });
+        const $ = cheerio.load(response.data);
+        const jobs = feed.kind === 'freejobalert'
+          ? this.parseFreeJobAlert($)
+          : this.parseOfficialListing($, feed);
+        allJobs.push(...jobs);
+        logger.info('[GovtScraper] %s returned %d listings', feed.publisher, jobs.length);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       } catch (err) {
-        logger.warn('[GovtScraper] Error scraping feed %s: %s', url, (err as Error).message);
+        logger.warn('[GovtScraper] Error scraping %s (%s): %s', feed.publisher, feed.url, (err as Error).message);
       }
     }
 
-    if (jobs.length === 0) {
-      return this.scrapeWithBrowser();
-    }
+    // Remove duplicate rows discovered across overlapping feeds before DB-level deduplication.
+    const seen = new Set<string>();
+    return allJobs.filter((job) => {
+      const key = job.title.toLowerCase().replace(/^government job:\s*/, '').replace(/\brecruitment\b|\bonline form\b/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
 
+  private parseFreeJobAlert($: cheerio.CheerioAPI): RawScrapedJob[] {
+    const jobs: RawScrapedJob[] = [];
+    $('table.latjnstab tr, table tr').each((_, el) => {
+      const cells = $(el).find('td');
+      const postDate = cells.eq(0).text().trim();
+      const agency = cells.eq(1).text().trim();
+      const postName = cells.eq(2).text().trim();
+      const qualification = cells.eq(3).text().trim();
+      const lastDate = cells.eq(4).text().trim();
+      const link = $(el).find('td a').last().attr('href') || $(el).find('a').first().attr('href') || '';
+
+      if (!agency || !postName || !link) return;
+      const absoluteLink = this.absoluteUrl(link, 'https://www.freejobalert.com/');
+      if (!absoluteLink) return;
+
+      const rowText = $(el).text();
+      const ageMatch = rowText.match(/\b(?:age\s*limit|age)\s*[:\-–]?\s*([0-9]{1,2}\s*[-–to]+\s*[0-9]{1,2}\s*(?:years?|yrs?)?|(?:max(?:imum)?|upto|under)\s*[0-9]{1,2}\s*(?:years?|yrs?))/i);
+      const ageLimit = ageMatch ? ageMatch[1].trim() : 'As per Govt rules';
+
+      jobs.push({
+        source: this.source,
+        title: `${postName} Recruitment (${agency})`,
+        company: agency,
+        location: 'India',
+        description: `Government job listing discovered on FreeJobAlert. Qualification: ${qualification || 'Any Degree / Diploma / B.Tech'}. Last date: ${lastDate || 'See official notification'}. Age limit: ${ageLimit}. Posted: ${postDate}.`,
+        url: absoluteLink,
+        isRemote: false,
+        experience: 'Freshers / 0-2 Years',
+        metadata: { postDate, lastDate, qualification, ageLimit, agency, publisher: 'FreeJobAlert' },
+      });
+    });
     return jobs;
   }
 
-  private async scrapeFeed(url: string): Promise<RawScrapedJob[]> {
-    const headers = {
-      'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    };
-
-    const response = await axios.get(url, { headers, timeout: 15000 });
-    const $ = cheerio.load(response.data);
+  private parseOfficialListing($: cheerio.CheerioAPI, feed: GovtFeed): RawScrapedJob[] {
     const jobs: RawScrapedJob[] = [];
+    const seenUrls = new Set<string>();
 
-    $('table.latjnstab tr, table tr').each((_, el) => {
-      const postDate = $(el).find('td').eq(0).text().trim();
-      const recAgency = $(el).find('td').eq(1).text().trim();
-      const postName = $(el).find('td').eq(2).text().trim();
-      const qualification = $(el).find('td').eq(3).text().trim();
-      const lastDate = $(el).find('td').eq(4).text().trim();
-      const link = $(el).find('td a').last().attr('href') || $(el).find('a').attr('href') || '';
+    $('a[href]').each((_, el) => {
+      const anchor = $(el);
+      const title = anchor.text().replace(/\s+/g, ' ').trim();
+      const href = anchor.attr('href') || '';
+      if (title.length < 12 || title.length > 240 || !href || /^(javascript:|mailto:|#)/i.test(href)) return;
 
-      // Only target entries that have valid post name and link
-      if (recAgency && postName && link && link.startsWith('http')) {
-        const isGraduateEligible =
-          qualification.toLowerCase().includes('degree') ||
-          qualification.toLowerCase().includes('graduate') ||
-          qualification.toLowerCase().includes('b.e') ||
-          qualification.toLowerCase().includes('b.tech') ||
-          qualification.toLowerCase().includes('any degree') ||
-          qualification.toLowerCase().includes('diploma') ||
-          qualification.toLowerCase().includes('10th') ||
-          qualification.toLowerCase().includes('12th');
+      const url = this.absoluteUrl(href, feed.url);
+      if (!url || seenUrls.has(url)) return;
 
-        if (isGraduateEligible || qualification === '') {
-          jobs.push({
-            source: this.source,
-            title: `${postName} Recruitment (${recAgency})`,
-            company: recAgency,
-            location: 'All India',
-            description: `Official Notification: ${recAgency} invites applications for ${postName}. Qualification: ${
-              qualification || 'Any Graduate / Degree'
-            }. Last Date: ${lastDate || 'Check Notification'}. Posted: ${postDate}.`,
-            url: link,
-            isRemote: false,
-            experience: 'Freshers / Graduates',
-            metadata: { postDate, lastDate, qualification, agency: recAgency },
-          });
-        }
-      }
+      // Keep vacancy/advertisement links and descriptive job notices; skip navigation and generic site links.
+      const context = anchor.closest('tr, li, article').text().replace(/\s+/g, ' ').trim();
+      const searchable = `${title} ${context} ${url}`;
+      if (!/(recruit|vacan|job|post|advertisement|notification|application|employment|career|engagement|fellow|apprent|consultant|officer|assistant|engineer|scientist|constable|teacher|technician|director|manager)/i.test(searchable)) return;
+      if (/^(home|about us|contact us|privacy policy|login|register|read more|view all)$/i.test(title)) return;
+
+      seenUrls.add(url);
+      const organization = feed.publisher;
+
+      const qualMatch = context.match(/\b(?:qualification|eligibility|education)\s*[:\-–]?\s*([^.,\n;]+)/i);
+      const ageMatch = context.match(/\b(?:age\s*limit|age)\s*[:\-–]?\s*([0-9]{1,2}\s*[-–to]+\s*[0-9]{1,2}\s*(?:years?|yrs?)?|(?:max(?:imum)?|upto|under)\s*[0-9]{1,2}\s*(?:years?|yrs?))/i);
+      const dateMatch = context.match(/\b(?:last\s*date|deadline|closing\s*date|apply\s*by)\s*[:\-–]?\s*([0-9]{1,2}[\/\-\.][0-9]{1,2}[\/\-\.][0-9]{2,4}|[0-9]{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+(?:\s+[0-9]{4})?)/i);
+
+      const qualification = qualMatch ? qualMatch[1].trim() : 'Any Degree / B.Tech / Diploma';
+      const ageLimit = ageMatch ? ageMatch[1].trim() : 'As per Govt rules';
+      const lastDate = dateMatch ? dateMatch[1].trim() : 'Refer Notification';
+
+      jobs.push({
+        source: this.source,
+        title: `Government Job: ${title}`,
+        company: organization,
+        location: 'India',
+        description: `${feed.publisher} listing: ${context || title}. Qualification: ${qualification}. Age Limit: ${ageLimit}. Last Date: ${lastDate}.`,
+        url,
+        isRemote: false,
+        experience: 'Freshers / 0-2 Years',
+        metadata: { publisher: feed.publisher, listingPage: feed.url, qualification, ageLimit, lastDate },
+      });
     });
 
     return jobs;
   }
 
-  private async scrapeWithBrowser(): Promise<RawScrapedJob[]> {
-    const { context, page } = await this.createBrowserContext();
-    const jobs: RawScrapedJob[] = [];
-
+  private absoluteUrl(href: string, baseUrl: string): string | null {
     try {
-      await page.goto('https://www.freejobalert.com/government-jobs/', { waitUntil: 'domcontentloaded', timeout: 30000 });
-      await page.waitForTimeout(2000);
-
-      const rows = await page.$$('table.latjnstab tr');
-      for (const row of rows.slice(1, 15)) {
-        try {
-          const cells = await row.$$('td');
-          if (cells.length >= 5) {
-            const agency = await cells[1].textContent().then((t) => t?.trim() || '');
-            const post = await cells[2].textContent().then((t) => t?.trim() || '');
-            const qual = await cells[3].textContent().then((t) => t?.trim() || '');
-            const link = await row.$eval('a', (a) => (a as HTMLAnchorElement).href || '').catch(() => '');
-
-            if (agency && post && link) {
-              jobs.push({
-                source: this.source,
-                title: `${post} (${agency})`,
-                company: agency,
-                location: 'All India',
-                description: `Govt Job: ${agency} is hiring for ${post}. Eligibility: ${qual}. Apply on official portal.`,
-                url: link,
-                isRemote: false,
-                experience: 'Freshers / Graduates',
-              });
-            }
-          }
-        } catch {
-          // ignore row
-        }
-      }
-    } catch (error) {
-      logger.warn('[GovtScraper] Browser fallback failed: %s', (error as Error).message);
-    } finally {
-      await context.close().catch(() => {});
+      return new URL(href, baseUrl).toString();
+    } catch {
+      return null;
     }
-
-    return jobs;
   }
 }
