@@ -82,28 +82,44 @@ export class WhatsAppPublisher {
     } finally {
       await page.waitForTimeout(2000);
       await context.close().catch(() => { });
-      // Auto-sync session to cloud database after browser is closed and file locks are released
       await backupSessionToCloud().catch(() => { });
     }
   }
 
   /**
-   * Sends a message to a specific WhatsApp group by name.
+   * Sends a single message to a specific WhatsApp group by name.
    */
   public async sendMessage(groupName: string, message: string): Promise<{ success: boolean; error?: string }> {
+    const res = await this.sendBatchMessages(groupName, [message]);
+    return { success: res.success, error: res.error };
+  }
+
+  /**
+   * Sends multiple messages sequentially within a single browser session to a WhatsApp group.
+   */
+  public async sendBatchMessages(
+    groupName: string,
+    messages: string[]
+  ): Promise<{ success: boolean; sent: number; total: number; error?: string }> {
+    if (!messages || messages.length === 0) {
+      return { success: true, sent: 0, total: 0 };
+    }
+
     if (env.DRY_RUN) {
-      logger.info('🧪 [DRY_RUN] Simulating WhatsApp post to "%s":\n%s', groupName, message);
-      return { success: true };
+      logger.info('🧪 [DRY_RUN] Simulating WhatsApp batch (%d messages) to "%s"', messages.length, groupName);
+      messages.forEach((msg, idx) => {
+        logger.info('--- Preview Message %d/%d ---\n%s\n', idx + 1, messages.length, msg);
+      });
+      return { success: true, sent: messages.length, total: messages.length };
     }
 
     this.cleanStaleLocks();
-
-    // Auto-restore session from cloud if running in clean container
     await restoreSessionFromCloud();
 
-    logger.info('📤 Sending WhatsApp message to group: "%s"', groupName);
+    logger.info('📤 Starting WhatsApp batch dispatch of %d message(s) to group: "%s"', messages.length, groupName);
     let context: BrowserContext | null = null;
     let page: Page | null = null;
+    let sentCount = 0;
 
     try {
       const isHeadless = process.platform === 'linux' ? true : env.WHATSAPP_HEADLESS;
@@ -156,7 +172,7 @@ export class WhatsAppPublisher {
         );
       }
 
-      // 1c. Bypass any "Download WhatsApp for Windows / Mac" promo screens or landing dialogs
+      // 1c. Bypass any promo screens or landing dialogs
       try {
         const promoBypassSelectors = [
           'a:has-text("Use WhatsApp Web")',
@@ -179,17 +195,15 @@ export class WhatsAppPublisher {
           }
         }
       } catch {
-        // Non-blocking
+        // Non-blocking banner bypass
       }
 
-      // 2. Wait for chat synchronization screen to finish ("Loading your chats", "Connecting", progress bars)
-      logger.info('⏳ Checking for WhatsApp chat synchronization progress...');
+      // 2. Chat synchronization check
       const syncSelectors = [
-        'progress',
-        '[role="progressbar"]',
-        'div:has-text("Loading your chats")',
-        'span:has-text("Loading your chats")',
-        'div:has-text("Connecting")',
+        'div[data-testid="chat-list-loading"]',
+        'span[data-icon="sync"]',
+        'div:has-text("Syncing messages")',
+        'div:has-text("Connecting...")',
         'div:has-text("Downloading messages")',
       ];
 
@@ -247,7 +261,6 @@ export class WhatsAppPublisher {
 
         logger.info('   ...waiting for chat list search box (attempt %d/15)...', attempt);
 
-        // Try clicking search button if search input isn't visible yet
         const searchBtn = await page.$('button[aria-label*="Search"], [data-icon="search"], div[data-testid="chat-list-search"]');
         if (searchBtn) {
           await searchBtn.click({ force: true }).catch(() => { });
@@ -260,7 +273,7 @@ export class WhatsAppPublisher {
         const title = await page.title().catch(() => 'unknown');
         const bodySnippet = await page.evaluate(() => document.body.innerText.slice(0, 300)).catch(() => 'unavailable');
         throw new Error(
-          `Could not find search input box on WhatsApp Web (URL: "${url}", Title: "${title}", Visible Text: "${bodySnippet.replace(/\n+/g, ' ')}"). Chats may still be synchronizing.`
+          `Could not find search input box on WhatsApp Web (URL: "${url}", Title: "${title}", Visible Text: "${bodySnippet.replace(/\\n+/g, ' ')}"). Chats may still be synchronizing.`
         );
       }
 
@@ -305,7 +318,7 @@ export class WhatsAppPublisher {
         }
       }
 
-      // Strategy D: Enter key on active search input (WhatsApp Web auto-opens first search match on Enter)
+      // Strategy D: Enter key on active search input
       if (!clickedGroup) {
         logger.info('Pressing Enter to select first search result for "%s"...', groupName);
         await page.keyboard.press('Enter');
@@ -314,7 +327,7 @@ export class WhatsAppPublisher {
 
       await page.waitForTimeout(2000);
 
-      // 6. Locate Message Composition Box
+      // 6. Locate Message Composition Box Selectors
       const messageBoxSelectors = [
         'footer div[contenteditable="true"]',
         'footer div[role="textbox"]',
@@ -327,96 +340,62 @@ export class WhatsAppPublisher {
         'div[contenteditable="true"]',
       ];
 
-      const messageBox = await page.waitForSelector(messageBoxSelectors.join(', '), { timeout: 15000 }).catch(() => null);
+      // Send each message in sequence within the same active group session
+      for (let idx = 0; idx < messages.length; idx++) {
+        const message = messages[idx];
+        logger.info('📨 [Alert %d/%d] Sending to "%s"...', idx + 1, messages.length, groupName);
 
-      if (!messageBox) {
-        throw new Error(`Message input box not found for group "${groupName}". Make sure you are a member of this group.`);
-      }
-
-      await messageBox.click({ force: true });
-      await page.waitForTimeout(400);
-
-      // 7. Insert message lines preserving formatting (Shift+Enter for line breaks)
-      const lines = message.split('\n');
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (line.length > 0) {
-          await page.keyboard.insertText(line);
-        }
-        if (i < lines.length - 1) {
-          await page.keyboard.down('Shift');
-          await page.keyboard.press('Enter');
-          await page.keyboard.up('Shift');
-        }
-      }
-
-      await page.waitForTimeout(800);
-
-      // 8. Send message via Enter key and fallback Send button
-      await page.keyboard.press('Enter');
-      await page.waitForTimeout(600);
-
-      const sendBtn = await page.waitForSelector('button[data-testid="compose-btn-send"], span[data-icon="send"], button[aria-label="Send"]', { timeout: 2000 }).catch(() => null);
-      if (sendBtn) {
-        await sendBtn.click({ force: true }).catch(() => { });
-      }
-
-      // 9. Wait for WhatsApp to transition from Pending (clock icon) to Sent (checkmark)
-      logger.info('⏳ Waiting for WhatsApp server delivery confirmation (clock 🕒 -> checkmark ✔️)...');
-      const startTime = Date.now();
-      const maxWaitMs = 30000;
-      let confirmed = false;
-
-      while (Date.now() - startTime < maxWaitMs) {
-        // If send button is still visible, message may still be in input box, retry enter/click
-        const lingeringSendBtn = await page.$('button[data-testid="compose-btn-send"], span[data-icon="send"]');
-        if (lingeringSendBtn) {
-          await lingeringSendBtn.click({ force: true }).catch(() => { });
-          await page.keyboard.press('Enter').catch(() => { });
+        const messageBox = await page.waitForSelector(messageBoxSelectors.join(', '), { timeout: 15000 }).catch(() => null);
+        if (!messageBox) {
+          throw new Error(`Message input box not found for group "${groupName}". Make sure you are a member of this group.`);
         }
 
-        const deliveryStatus = await page.evaluate(() => {
-          const checkIcons = document.querySelectorAll(
-            'span[data-icon="msg-check"], span[data-icon="msg-dblcheck"], span[data-icon="msg-dblcheck-ack"], span[data-icon="status-check"], span[data-icon="status-dblcheck"]'
-          );
-          const pendingIcons = document.querySelectorAll(
-            'span[data-icon="msg-time"], span[data-icon="status-time"], span[data-icon="time"], span[aria-label*="Pending"], span[aria-label*="pending"]'
-          );
+        await messageBox.click({ force: true });
+        await page.waitForTimeout(300);
 
-          return {
-            hasChecks: checkIcons.length > 0,
-            hasPending: pendingIcons.length > 0,
-          };
-        });
-
-        if (deliveryStatus.hasChecks && !deliveryStatus.hasPending) {
-          confirmed = true;
-          logger.info('✅ Confirmed! WhatsApp server acknowledged message delivery (checkmark received).');
-          break;
+        // Insert message lines preserving formatting (Shift+Enter for line breaks)
+        const lines = message.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          if (line.length > 0) {
+            await page.keyboard.insertText(line);
+          }
+          if (i < lines.length - 1) {
+            await page.keyboard.down('Shift');
+            await page.keyboard.press('Enter');
+            await page.keyboard.up('Shift');
+          }
         }
 
-        // If no pending clock icons remain after initial wait
-        if (!deliveryStatus.hasPending && (Date.now() - startTime) > 4000) {
-          confirmed = true;
-          logger.info('✅ Message dispatched without pending status.');
-          break;
+        await page.waitForTimeout(500);
+
+        // Send message via Enter key and fallback Send button
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(500);
+
+        const sendBtn = await page.waitForSelector('button[data-testid="compose-btn-send"], span[data-icon="send"], button[aria-label="Send"]', { timeout: 2000 }).catch(() => null);
+        if (sendBtn) {
+          await sendBtn.click({ force: true }).catch(() => { });
         }
 
-        await page.waitForTimeout(1000);
+        sentCount++;
+        logger.info('🚀 [Alert %d/%d] Posted successfully to WhatsApp!', idx + 1, messages.length);
+
+        // Pacing delay between batch messages to prevent WhatsApp anti-spam flags
+        if (idx < messages.length - 1) {
+          const pacingDelay = Math.max(env.WHATSAPP_MESSAGE_DELAY_MS || 3500, 3000);
+          logger.info('⏳ Pacing delay (%dms) before next message...', pacingDelay);
+          await page.waitForTimeout(pacingDelay);
+        }
       }
 
-      if (!confirmed) {
-        logger.warn('⚠️ Pending clock icon took longer than usual. Allowing extra buffer for socket sync...');
-      }
-
-      // Safety buffer: keep the browser open long enough so WhatsApp Web WebSocket and IndexedDB flush completely
+      // Safety buffer before closing browser context
       const finalDelay = Math.max(env.WHATSAPP_MESSAGE_DELAY_MS || 5000, 6000);
-      logger.info('⏱️ Finalizing message transmission buffer (%ds)...', Math.round(finalDelay / 1000));
+      logger.info('⏱️ Finalizing batch transmission buffer (%ds)...', Math.round(finalDelay / 1000));
       await page.waitForTimeout(finalDelay);
 
-      logger.info('🚀 Message successfully posted to "%s"!', groupName);
-
-      return { success: true };
+      logger.info('🎉 Successfully finished sending %d message(s) to "%s"!', sentCount, groupName);
+      return { success: true, sent: sentCount, total: messages.length };
     } catch (error) {
       const errMsg = (error as Error).message;
       logger.error('❌ Failed to send WhatsApp message to "%s": %s', groupName, errMsg);
@@ -426,7 +405,7 @@ export class WhatsAppPublisher {
         logger.info('📸 Saved error screenshot to ./data/wa_error.png');
       }
 
-      return { success: false, error: errMsg };
+      return { success: false, sent: sentCount, total: messages.length, error: errMsg };
     } finally {
       if (context) {
         await context.close().catch(() => { });
