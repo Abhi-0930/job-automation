@@ -72,6 +72,8 @@ src/
 │   ├── base.scraper.ts # Abstract scraper with retry & stealth browser
 │   ├── linkedin/       # LinkedIn public guest search & scraper
 │   ├── internshala/    # Internshala internships & jobs parser
+│   ├── internships/    # Specialized internship & apprenticeship sources
+│   ├── startups/       # YC, Cutshort, and curated startup job boards
 │   ├── wellfound/      # Wellfound startup listings scraper
 │   ├── careers/        # Greenhouse & Lever ATS direct career pages
 │   └── index.ts        # Scraper registry & batch executor
@@ -154,8 +156,10 @@ npm run auth:whatsapp
 | Command | Description |
 |---|---|
 | `npm run auth:whatsapp` | Opens browser to scan WhatsApp QR code once |
-| `npm run scrape` | Scrapes all 4 sources and displays preview table |
-| `npm run cli scrape -s careers` | Scrapes a specific source (`linkedin`, `internshala`, `wellfound`, `careers`) |
+| `npm run scrape` | Scrapes all registered sources and displays a preview table |
+| `npm run cli scrape -s niche-internships` | Scrapes ISTI, DRDO, MoSPI, Uptern, YesIntern, and NATS listings |
+| `npm run cli -- scrape -s startup-boards` | Scrapes YC, Cutshort, Indian Startup Jobs, and Andhra Startup Map |
+| `npm run cli scrape -s careers` | Scrapes a specific registered source |
 | `npm run cli collect` | Runs end-to-end collection, deduplication, classification, and scoring |
 | `npm run cli process` | Processes all pending raw jobs in `jobs_raw` table |
 | `npm run publish:tech` | Publishes top Tech jobs (score >= 70) |
@@ -171,7 +175,7 @@ npm run auth:whatsapp
 
 | Time | Action | Criteria | Target WhatsApp Group |
 |---|---|---|---|
-| **Every 15 mins** | Job Collection | Scrapes all 4 sources, deduplicates, classifies & scores | Database (`jobs_raw` & `jobs`) |
+| **Every 15 mins** | Job Collection | Scrapes registered sources, deduplicates, classifies & scores | Database (`jobs_raw` & `jobs`) |
 | **9:00 AM** | Tech Jobs Batch | Top 5 `TECH` jobs with `score >= 70` | `💻 Tech Jobs` |
 | **1:00 PM** | Internships Batch | Top 5 `INTERNSHIP` jobs with `score >= 70` | `🎓 Internships` |
 | **5:00 PM** | Non-Tech Jobs Batch | Top 5 `NON_TECH` jobs with `score >= 70` | `🏢 Non-Tech Jobs` |
