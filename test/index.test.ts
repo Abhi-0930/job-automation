@@ -121,6 +121,27 @@ async function runTests() {
     assert(formatted.includes('https://careers.microsoft.com/job/12345'), 'Contains application URL');
     assert(formatted.includes('#TechJobs'), 'Contains relevant category hashtag');
 
+    // Test Govt job format (omits match score and hashtags)
+    const govtFormatted = formatWhatsAppJobMessage({
+      title: 'Station Master',
+      company: 'Railway Recruitment Control Board',
+      location: 'India',
+      experience: 'Freshers / 0-2 Years',
+      url: 'https://rrcb.gov.in/job/1',
+      category: 'GOVT',
+      score: 95,
+      qualification: 'Graduate',
+      ageLimit: '18-33 Years',
+      lastDate: '30/11/2026',
+    });
+
+    assert(govtFormatted.includes('🏛️ *Station Master*'), 'Govt alert has title');
+    assert(!govtFormatted.includes('Match Score'), 'Govt alert omits match score');
+    assert(!govtFormatted.includes('#GovtJobs') && !govtFormatted.includes('#SarkariNaukri'), 'Govt alert omits hashtags');
+    assert(govtFormatted.includes('📚 *Qualification:* Graduate'), 'Govt alert includes qualification');
+    assert(govtFormatted.includes('🎂 *Age Limit:* 18-33 Years'), 'Govt alert includes age limit');
+    assert(govtFormatted.includes('⏳ *Last Date to Apply:* 30/11/2026'), 'Govt alert includes last date');
+
     // Test Daily Digest
     const digest = formatDailyDigestMessage({
       date: '06 Sep 2026',
