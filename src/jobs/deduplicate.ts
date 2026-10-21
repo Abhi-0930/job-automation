@@ -28,6 +28,27 @@ export function generateJobHash(company: string, title: string, location: string
   return crypto.createHash('sha256').update(rawKey).digest('hex');
 }
 
+/**
+ * Government notices often appear on several portals with slightly different
+ * prefixes and publisher names. Hash their cleaned notice title across sources.
+ */
+function generateGovtJobHash(company: string, title: string, location: string): string {
+  const titleWithoutAgencySuffix = title.replace(/\s*\([^)]*\)\s*$/, ' ');
+  const cleanedTitle = normalizeText(titleWithoutAgencySuffix)
+    .replace(/\b(government job|govt job|recruitment|online form|notification|advertisement)\b/g, ' ')
+    .replace(/\b(20\d{2})\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Very short role names are common across unrelated vacancies, so retain
+  // the recruiting organization for those to avoid false duplicate matches.
+  const identity = cleanedTitle.length < 24
+    ? `${normalizeText(company)}|${cleanedTitle}`
+    : cleanedTitle;
+  const rawKey = `govt|${identity}|${normalizeText(location)}`;
+  return crypto.createHash('sha256').update(rawKey).digest('hex');
+}
+
 export interface DedupCheckResult {
   isDuplicate: boolean;
   hash: string;
@@ -47,7 +68,9 @@ export async function filterUniqueJobs(
   const seenHashesInBatch = new Set<string>();
 
   for (const job of scrapedJobs) {
-    const hash = generateJobHash(job.company, job.title, job.location);
+    const hash = job.source === 'govt'
+      ? generateGovtJobHash(job.company, job.title, job.location)
+      : generateJobHash(job.company, job.title, job.location);
     if (!seenHashesInBatch.has(hash)) {
       seenHashesInBatch.add(hash);
       jobsWithHash.push({ ...job, hash });
