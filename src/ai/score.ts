@@ -40,6 +40,7 @@ export async function scoreJob(params: {
         company,
         location,
         description,
+        category,
       });
 
       if (aiScore) {
@@ -67,13 +68,11 @@ async function scoreWithDeepSeek(job: {
   company: string;
   location: string;
   description: string;
+  category?: string;
 }): Promise<ScoringResult | null> {
-  const systemPrompt = `You are an expert tech career advisor scoring job opportunities for a curated WhatsApp community.
-Evaluate the opportunity from 1 to 100 based on:
-1. Company reputation (1-25)
-2. Freshers friendliness / entry level accessibility (1-25)
-3. Remote availability & perks (1-25)
-4. Career growth & compensation quality (1-25)
+  const systemPrompt = `You are an expert career advisor scoring job opportunities for a curated WhatsApp community.
+Score the role using the available evidence. For government vacancies, assess recruiting-body credibility, eligibility and age-limit clarity, application deadline, and role relevance; do not penalize a government post for lacking remote work or private-sector compensation details. For private-sector roles, assess employer credibility, entry-level access, work arrangement, and career growth.
+Use only information present in the title and description. Do not assume age limits or eligibility when they are not stated.
 
 Output JSON only with this structure:
 {
@@ -87,6 +86,7 @@ Output JSON only with this structure:
 
   const userPrompt = `Score this opportunity:
 Company: ${job.company}
+Category: ${job.category || 'Unknown'}
 Title: ${job.title}
 Location: ${job.location}
 Description: ${job.description.slice(0, 1000)}`;
@@ -130,7 +130,7 @@ function calculateHeuristicScore(job: {
   const companyLower = job.company.toLowerCase();
   const textLower = `${job.title} ${job.description} ${job.location}`.toLowerCase();
 
-  // 1. Freshers / 0-1 Year accessibility (+15 bonus)
+  // 1. Freshers / 0-1 Year accessibility (+20 bonus)
   if (
     job.isFresherEligible ||
     job.category === 'INTERNSHIP' ||
@@ -139,14 +139,14 @@ function calculateHeuristicScore(job: {
     textLower.includes('0-1') ||
     textLower.includes('graduate trainee')
   ) {
-    score += 15;
+    score += 20;
   }
 
-  // 2. Company reputation (+10 to +20)
+  // 2. Company reputation (+5 to +10 - balanced to prevent single-company monopolies)
   if (TOP_TIER_COMPANIES.some((top) => companyLower.includes(top))) {
-    score += 20;
-  } else if (companyLower.length > 2) {
     score += 10;
+  } else if (companyLower.length > 2) {
+    score += 5;
   }
 
   // 3. Remote availability (+10)
@@ -154,9 +154,9 @@ function calculateHeuristicScore(job: {
     score += 10;
   }
 
-  // 4. High demand in-market skills (+5)
-  if (/\b(react|typescript|python|golang|ai|devops|aws|sql|node)\b/i.test(textLower)) {
-    score += 5;
+  // 4. High demand in-market skills (+10)
+  if (/\b(react|typescript|python|golang|ai|devops|aws|sql|node|frontend|backend|fullstack|java|c\+\+)\b/i.test(textLower)) {
+    score += 10;
   }
 
   // Cap between 40 and 98
