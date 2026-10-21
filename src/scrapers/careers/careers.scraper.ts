@@ -25,34 +25,62 @@ interface LeverJob {
   descriptionPlain?: string;
 }
 
+interface AshbyJob {
+  id: string;
+  title: string;
+  location?: string;
+  department?: string;
+  employmentType?: string;
+  jobUrl: string;
+  isRemote?: boolean;
+  descriptionPlain?: string;
+}
+
 export class CareersScraper extends BaseScraper {
   public readonly name = 'Company Career Pages Scraper';
   public readonly source = 'careers';
 
   // Notable tech companies & high-growth startups using Greenhouse ATS
   private greenhouseCompanies = [
-    { name: 'Razorpay', boardToken: 'razorpay' },
-    { name: 'Zepto', boardToken: 'zepto' },
-    { name: 'Swiggy', boardToken: 'swiggy' },
-    { name: 'Meesho', boardToken: 'meesho' },
-    { name: 'Cred', boardToken: 'cred' },
-    { name: 'Groww', boardToken: 'groww' },
-    { name: 'Urban Company', boardToken: 'urbancompany' },
-    { name: 'Nykaa', boardToken: 'nykaa' },
     { name: 'Figma', boardToken: 'figma' },
     { name: 'Stripe', boardToken: 'stripe' },
+    { name: 'Groww', boardToken: 'groww' },
     { name: 'Postman', boardToken: 'postman' },
     { name: 'GitHub', boardToken: 'github' },
-    { name: 'InMobi', boardToken: 'inmobi' },
+    { name: 'Cloudflare', boardToken: 'cloudflare' },
+    { name: 'Datadog', boardToken: 'datadog' },
+    { name: 'GitLab', boardToken: 'gitlab' },
+    { name: 'Twilio', boardToken: 'twilio' },
+    { name: 'Discord', boardToken: 'discord' },
+    { name: 'Grammarly', boardToken: 'grammarly' },
     { name: 'BrowserStack', boardToken: 'browserstack' },
     { name: 'Hasura', boardToken: 'hasura' },
+    { name: 'InMobi', boardToken: 'inmobi' },
+    { name: 'Urban Company', boardToken: 'urbancompany' },
+    { name: 'Pinterest', boardToken: 'pinterest' },
+    { name: 'Elastic', boardToken: 'elastic' },
+    { name: 'Thoughtworks', boardToken: 'thoughtworks' },
+  ];
+
+  // Modern tech companies & AI leaders using Ashby ATS
+  private ashbyCompanies = [
+    { name: 'Perplexity AI', boardName: 'perplexity' },
+    { name: 'Vercel', boardName: 'vercel' },
+    { name: 'Ramp', boardName: 'ramp' },
+    { name: 'Retool', boardName: 'retool' },
+    { name: 'Linear', boardName: 'linear' },
+    { name: 'Notion', boardName: 'notion' },
+    { name: 'Modal Labs', boardName: 'modal' },
+    { name: 'ElevenLabs', boardName: 'elevenlabs' },
+    { name: 'Replit', boardName: 'replit' },
+    { name: 'Cursor (Anysphere)', boardName: 'anysphere' },
+    { name: 'Quora', boardName: 'quora' },
   ];
 
   // Notable tech companies & startups using Lever ATS
   private leverCompanies = [
     { name: 'Atlassian', site: 'atlassian' },
     { name: 'Palantir', site: 'palantir' },
-    { name: 'Coinbase', site: 'coinbase' },
     { name: 'Clevertap', site: 'clevertap' },
     { name: 'Slice', site: 'slice' },
     { name: 'CoinSwitch', site: 'coinswitch' },
@@ -71,7 +99,17 @@ export class CareersScraper extends BaseScraper {
       }
     }
 
-    // 2. Fetch from Lever boards
+    // 2. Fetch from Ashby boards (Modern Tech & AI Leaders)
+    for (const company of this.ashbyCompanies) {
+      try {
+        const ashbyJobs = await this.fetchAshby(company.name, company.boardName);
+        jobs.push(...ashbyJobs);
+      } catch (err) {
+        logger.debug('[Careers] Ashby fetch failed for %s: %s', company.name, (err as Error).message);
+      }
+    }
+
+    // 3. Fetch from Lever boards
     for (const company of this.leverCompanies) {
       try {
         const leverJobs = await this.fetchLever(company.name, company.site);
@@ -93,6 +131,7 @@ export class CareersScraper extends BaseScraper {
     const filtered: RawScrapedJob[] = [];
 
     for (const job of rawJobs) {
+      if (this.isSeniorTitle(job.title)) continue;
       const loc = job.location?.name || 'Remote';
       const isIndiaOrRemote =
         loc.toLowerCase().includes('india') ||
@@ -133,6 +172,7 @@ export class CareersScraper extends BaseScraper {
     const filtered: RawScrapedJob[] = [];
 
     for (const job of rawJobs) {
+      if (this.isSeniorTitle(job.text)) continue;
       const loc = job.categories?.location || 'Remote';
       const isIndiaOrRemote =
         loc.toLowerCase().includes('india') ||
@@ -160,5 +200,50 @@ export class CareersScraper extends BaseScraper {
     }
 
     return filtered;
+  }
+
+  private async fetchAshby(companyName: string, boardName: string): Promise<RawScrapedJob[]> {
+    const url = `https://api.ashbyhq.com/posting-api/job-board/${boardName}`;
+    const response = await axios.get<{ jobs?: AshbyJob[] }>(url, { timeout: 10000 });
+
+    const rawJobs = response.data?.jobs || [];
+    const filtered: RawScrapedJob[] = [];
+
+    for (const job of rawJobs) {
+      if (this.isSeniorTitle(job.title)) continue;
+      const loc = job.location || (job.isRemote ? 'Remote' : 'India / Remote');
+      const isIndiaOrRemote =
+        job.isRemote ||
+        loc.toLowerCase().includes('remote') ||
+        loc.toLowerCase().includes('india') ||
+        loc.toLowerCase().includes('bangalore') ||
+        loc.toLowerCase().includes('bengaluru') ||
+        loc.toLowerCase().includes('hyderabad') ||
+        loc.toLowerCase().includes('anywhere');
+
+      if (isIndiaOrRemote) {
+        const isRemote = !!job.isRemote || loc.toLowerCase().includes('remote') || job.title.toLowerCase().includes('remote');
+
+        filtered.push({
+          source: this.source,
+          externalId: job.id,
+          title: job.title,
+          company: companyName,
+          location: loc,
+          description: `Direct opening at ${companyName}: ${job.title} in ${loc}. Department: ${
+            job.department || 'Engineering'
+          }. Apply directly on official career portal.`,
+          url: job.jobUrl,
+          isRemote,
+          metadata: { ats: 'ashby', boardName },
+        });
+      }
+    }
+
+    return filtered;
+  }
+
+  private isSeniorTitle(title: string): boolean {
+    return /\b(senior|sr\.?\b|lead\b|principal|staff|architect|manager|director|vp\b|head\s*of)\b/i.test(title);
   }
 }
