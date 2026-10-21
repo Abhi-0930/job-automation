@@ -119,11 +119,14 @@ export class JobCollector {
           company: raw.company,
           location: raw.location,
           experience: classification.experience,
+          batchLine: classification.batchLine,
           isRemote: classification.isRemote,
           skills: classification.skills,
           url: raw.url,
           category: classification.category,
           score: scoring.score,
+          description: raw.description,
+          metadata: raw.metadata as Record<string, unknown>,
         });
 
         // D. Insert into jobs table
