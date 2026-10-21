@@ -9,9 +9,10 @@ export class InternshalaScraper extends BaseScraper {
   public readonly source = 'internshala';
 
   private targetEndpoints = [
-    { url: 'https://internshala.com/internships/matching-preferences/', isInternship: true },
-    { url: 'https://internshala.com/jobs/fresher-jobs/', isInternship: false },
     { url: 'https://internshala.com/internships/work-from-home-internships/', isInternship: true },
+    { url: 'https://internshala.com/internships/computer-science-internship/', isInternship: true },
+    { url: 'https://internshala.com/jobs/fresher-jobs/', isInternship: false },
+    { url: 'https://internshala.com/jobs/it-jobs/', isInternship: false },
   ];
 
   protected async scrape(): Promise<RawScrapedJob[]> {
@@ -21,7 +22,7 @@ export class InternshalaScraper extends BaseScraper {
       try {
         const results = await this.scrapeEndpoint(target.url, target.isInternship);
         jobs.push(...results);
-        await new Promise((resolve) => setTimeout(resolve, 1200));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       } catch (err) {
         logger.warn('[Internshala] Error scraping %s: %s', target.url, (err as Error).message);
       }
@@ -48,11 +49,12 @@ export class InternshalaScraper extends BaseScraper {
     const jobs: RawScrapedJob[] = [];
 
     $('.individual_internship').each((_, el) => {
-      const title = $(el).find('.job-internship-name, .profile, h3.heading_4_5').text().trim();
-      const company = $(el).find('.company-name, .link_display_like_text').text().trim();
-      const location = $(el).find('.row-1-item.locations, .location_link, .locations span').text().trim() || 'Work From Home';
-      const stipend = $(el).find('.stipend, .salary').text().trim();
-      const relativeUrl = $(el).find('.job-title-href, .view_detail_button').attr('href') || '';
+      const title = $(el).find('.job-internship-name, .profile, h3.heading_4_5, .job-title-href').first().text().trim();
+      const rawCompany = $(el).find('.company-name, .link_display_like_text, .company_name').first().text().trim();
+      const company = rawCompany.replace(/Actively hiring/gi, '').replace(/\s+/g, ' ').trim();
+      const location = $(el).find('.row-1-item.locations, .location_link, .locations span, #location_names').first().text().trim() || 'Work From Home';
+      const stipend = $(el).find('.stipend, .salary, span.stipend').first().text().trim();
+      const relativeUrl = $(el).find('.job-title-href, .view_detail_button, a[href*="/internship/detail/"], a[href*="/job/detail/"]').first().attr('href') || '';
       
       const fullUrl = relativeUrl.startsWith('http')
         ? relativeUrl
