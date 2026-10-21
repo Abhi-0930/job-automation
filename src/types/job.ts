@@ -38,6 +38,7 @@ export interface ClassificationResult {
   subcategory?: string;
   isRemote?: boolean;
   experience?: string;
+  batchLine?: string;
   isFresherEligible?: boolean;
   skills?: string[];
   confidence: number;
