@@ -48,7 +48,7 @@ export function formatWhatsAppJobMessage(params: FormatJobParams): string {
 
   const remoteTag = isRemote ? ' (🌐 Remote / WFH)' : '';
   const skillsLine = skills && skills.length > 0 ? `🎯 *Skills:* ${skills.join(', ')}\n` : '';
-  const scoreLine = score && score >= 80 ? `⭐ *Match Score:* ${score}/100\n` : '';
+  const scoreLine = category !== 'GOVT' && score && score >= 80 ? `⭐ *Match Score:* ${score}/100\n` : '';
   const expLine = experience || (category === 'INTERNSHIP' ? 'Students / Interns' : 'Freshers / 0-2 Years');
   const eligibilityLine = batchLine
     ? `🎓 *Eligibility:* ${batchLine}\n`
@@ -81,6 +81,8 @@ export function formatWhatsAppJobMessage(params: FormatJobParams): string {
   const ageLine = age ? `🎂 *Age Limit:* ${age}\n` : '';
   const expiryLine = expiry ? `⏳ *Last Date to Apply:* ${expiry}\n` : '';
 
+  const footerSection = category === 'GOVT' ? '' : `\n\n━━━━━━━━━━━━━━━━━━━━\n${hashtags}`;
+
   return (
     `${emoji} *${title.trim()}*\n` +
     `🏢 *${category === 'GOVT' ? 'Agency / PSU' : 'Company'}:* ${company.trim()}\n` +
@@ -92,9 +94,8 @@ export function formatWhatsAppJobMessage(params: FormatJobParams): string {
     `💼 *Experience:* ${expLine}\n` +
     scoreLine +
     skillsLine +
-    `\n🔗 *Apply Here:*\n${url.trim()}\n\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
-    `${hashtags}`
+    `\n🔗 *Apply Here:*\n${url.trim()}` +
+    footerSection
   );
 }
 
