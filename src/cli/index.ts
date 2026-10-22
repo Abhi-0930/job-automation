@@ -371,6 +371,15 @@ program
         targetGroup
       );
 
+      // For Government jobs, enrich candidate jobs with their article details (exact age limit, qualification, last date)
+      if (category === 'GOVT') {
+        const { enrichGovtJob } = await import('../scrapers/govt/govt.scraper.js');
+        logger.info('🔍 Enriching %d target Government job(s) with live notice details...', targetJobs.length);
+        for (let i = 0; i < targetJobs.length; i++) {
+          targetJobs[i] = await enrichGovtJob(targetJobs[i]);
+        }
+      }
+
       const messages: string[] = targetJobs.map((job) => {
         const meta = (job.metadata || {}) as Record<string, string>;
         const exp = extractExperience(`${job.title} ${job.description}`, category);
@@ -380,7 +389,7 @@ program
           company: job.company,
           location: job.location,
           category,
-          score: 88,
+          score: category === 'GOVT' ? undefined : 88,
           qualification: meta.qualification || (category === 'GOVT' ? 'Any Degree / B.Tech / Diploma' : undefined),
           ageLimit: meta.ageLimit || (category === 'GOVT' ? 'As per Govt rules' : undefined),
           lastDate: meta.lastDate || (category === 'GOVT' ? 'See Notification' : undefined),
