@@ -66,31 +66,38 @@ export class GovtJobsScraper extends BaseScraper {
     const jobs: RawScrapedJob[] = [];
     $('table.latjnstab tr, table tr').each((_, el) => {
       const cells = $(el).find('td');
+      if (cells.length < 5) return;
+
       const postDate = cells.eq(0).text().trim();
-      const agency = cells.eq(1).text().trim();
-      const postName = cells.eq(2).text().trim();
+      const rawAgency = cells.eq(1).text().trim();
+      const rawPostName = cells.eq(2).text().trim();
       const qualification = cells.eq(3).text().trim();
       const lastDate = cells.eq(4).text().trim();
       const link = $(el).find('td a').last().attr('href') || $(el).find('a').first().attr('href') || '';
 
-      if (!agency || !postName || !link) return;
+      if (!rawAgency || !rawPostName || !link) return;
+      if (/^(post date|recruitment board|post name|qualification|last date)$/i.test(rawAgency)) return;
+      if (/^(post date|recruitment board|post name|qualification|last date)$/i.test(rawPostName)) return;
+
       const absoluteLink = this.absoluteUrl(link, 'https://www.freejobalert.com/');
       if (!absoluteLink) return;
 
-      const rowText = $(el).text();
-      const ageMatch = rowText.match(/\b(?:age\s*limit|age)\s*[:\-–]?\s*([0-9]{1,2}\s*[-–to]+\s*[0-9]{1,2}\s*(?:years?|yrs?)?|(?:max(?:imum)?|upto|under)\s*[0-9]{1,2}\s*(?:years?|yrs?))/i);
-      const ageLimit = ageMatch ? ageMatch[1].trim() : 'As per Govt rules';
+      const agency = rawAgency.replace(/\b(?:online\s*form|recruitment|posts?|vacanc(?:y|ies))\b.*$/i, '').trim() || rawAgency;
+      let title = rawPostName;
+      if (agency && !title.toLowerCase().includes(agency.toLowerCase())) {
+        title = `${agency} ${rawPostName}`;
+      }
 
       jobs.push({
         source: this.source,
-        title: `${postName} Recruitment (${agency})`,
+        title,
         company: agency,
         location: 'India',
-        description: `Government job listing discovered on FreeJobAlert. Qualification: ${qualification || 'Any Degree / Diploma / B.Tech'}. Last date: ${lastDate || 'See official notification'}. Age limit: ${ageLimit}. Posted: ${postDate}.`,
+        description: `Government job listing discovered on FreeJobAlert. Qualification: ${qualification || 'Any Degree / Diploma / B.Tech'}. Last date: ${lastDate || 'See official notification'}. Posted: ${postDate}.`,
         url: absoluteLink,
         isRemote: false,
         experience: 'Freshers / 0-2 Years',
-        metadata: { postDate, lastDate, qualification, ageLimit, agency, publisher: 'FreeJobAlert' },
+        metadata: { postDate, lastDate, qualification, ageLimit: 'As per Govt rules', agency, publisher: 'FreeJobAlert' },
       });
     });
     return jobs;
@@ -148,5 +155,114 @@ export class GovtJobsScraper extends BaseScraper {
     } catch {
       return null;
     }
+  }
+}
+
+/**
+ * Enriches a Government & PSU job by fetching the article or notification page
+ * to extract the exact Age Limit, Qualification, Last Date, and clean Post Name.
+ */
+export async function enrichGovtJob(job: RawScrapedJob): Promise<RawScrapedJob> {
+  if (!job.url || !job.url.startsWith('http')) return job;
+
+  try {
+    const response = await axios.get(job.url, {
+      headers: REQUEST_HEADERS,
+      timeout: 8000,
+    });
+
+    const $ = cheerio.load(response.data);
+    const meta = (job.metadata || {}) as Record<string, string>;
+
+    let ageLimit = '';
+    let qualification = '';
+    let lastDate = '';
+    let postName = '';
+    let hiringOrg = '';
+
+    // 1. Check HTML summary table (common in FreeJobAlert, SarkariResult, etc.)
+    $('table tr').each((_, tr) => {
+      const th = $(tr).find('th').text().trim().toLowerCase();
+      const td = $(tr).find('td').text().trim();
+      if ((th.includes('age limit') || th.includes('age criteria')) && !ageLimit) ageLimit = td;
+      if ((th.includes('qualification') || th.includes('educational qualification') || th.includes('eligibility')) && !qualification) qualification = td;
+      if ((th.includes('last date') || th.includes('application last date') || th.includes('closing date')) && !lastDate) lastDate = td;
+      if (th.includes('post name') && !postName) postName = td;
+      if ((th.includes('recruitment board') || th.includes('organization') || th.includes('agency')) && !hiringOrg) hiringOrg = td;
+    });
+
+    // 2. Check JSON-LD structured data (FAQPage or JobPosting)
+    $('script[type="application/ld+json"]').each((_, el) => {
+      try {
+        const data = JSON.parse($(el).html() || '{}');
+        if (data['@type'] === 'FAQPage' && Array.isArray(data.mainEntity)) {
+          for (const item of data.mainEntity) {
+            const q = (item.name || '').toLowerCase();
+            const ans = item.acceptedAnswer?.text || '';
+            if (q.includes('age limit') && !ageLimit) ageLimit = ans;
+            if (q.includes('last date') && !lastDate) lastDate = ans;
+            if (q.includes('qualification') && !qualification) qualification = ans;
+            if (q.includes('post name') && !postName) postName = ans;
+          }
+        }
+        if (data['@type'] === 'JobPosting') {
+          if (data.hiringOrganization?.name && !hiringOrg) hiringOrg = data.hiringOrganization.name;
+          if (data.validThrough && !lastDate) lastDate = data.validThrough.split('T')[0];
+        }
+      } catch {}
+    });
+
+    // 3. Fallback body regex
+    if (!ageLimit) {
+      const bodyText = $('body').text();
+      const m = bodyText.match(/\b(?:age\s*limit|maximum\s*age|age)\s*[:\-–]?\s*([0-9]{1,2}\s*[-–to]+\s*[0-9]{1,2}\s*(?:years?|yrs?)?|(?:max(?:imum)?|upto|under)\s*[0-9]{1,2}\s*(?:years?|yrs?))/i);
+      if (m) ageLimit = m[1].trim();
+    }
+
+    if (!lastDate) {
+      const bodyText = $('body').text();
+      const m = bodyText.match(/\b(?:last\s*date|apply\s*by|closing\s*date)\s*[:\-–]?\s*([0-9]{1,2}[\/\-\.][0-9]{1,2}[\/\-\.][0-9]{2,4}|[0-9]{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+(?:\s+[0-9]{4})?)/i);
+      if (m) lastDate = m[1].trim();
+    }
+
+    // Clean extracted values
+    if (ageLimit) {
+      const shortAge = ageLimit.match(/((?:maximum\s*age\s*limit\s*is\s*|max(?:imum)?\s*age\s*[:\-–]?\s*|[0-9]{1,2}\s*[-–to]+\s*)[0-9]{1,2}\s*(?:years?|yrs?)?)/i);
+      if (shortAge) {
+        ageLimit = shortAge[1].replace(/maximum\s*age\s*limit\s*is/i, 'Max').trim();
+        if (!ageLimit.toLowerCase().includes('year')) ageLimit += ' Years';
+      }
+    }
+
+    const updatedMeta = {
+      ...meta,
+      ageLimit: ageLimit || meta.ageLimit || 'As per Govt rules',
+      qualification: qualification || meta.qualification || 'Any Degree / Diploma / B.Tech',
+      lastDate: lastDate || meta.lastDate || 'See Official Notification',
+    };
+
+    let updatedCompany = hiringOrg || job.company;
+    updatedCompany = updatedCompany.replace(/\b(?:online\s*form|recruitment|posts?|vacanc(?:y|ies))\b.*$/i, '').trim();
+
+    let updatedTitle = job.title;
+    if (postName) {
+      updatedTitle = `${postName}`;
+      if (updatedCompany && !updatedTitle.toLowerCase().includes(updatedCompany.toLowerCase())) {
+        updatedTitle = `${updatedCompany} - ${updatedTitle}`;
+      }
+    } else {
+      updatedTitle = updatedTitle.replace(/\s*\([^)]*(?:online\s*form|artisan|recruitment)[^)]*\)/gi, '').trim();
+    }
+
+    return {
+      ...job,
+      title: updatedTitle,
+      company: updatedCompany || job.company,
+      metadata: updatedMeta,
+      description: `${job.description}. Age limit: ${updatedMeta.ageLimit}. Qualification: ${updatedMeta.qualification}. Last Date: ${updatedMeta.lastDate}.`,
+    };
+  } catch (err) {
+    logger.warn('[GovtScraper] Could not enrich job "%s": %s', job.title, (err as Error).message);
+    return job;
   }
 }
