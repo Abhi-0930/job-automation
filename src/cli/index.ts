@@ -240,15 +240,21 @@ program
 
         case 'NON_TECH':
           if (!targetGroup) targetGroup = env.WHATSAPP_GROUP_NON_TECH;
-          logger.info('🚀 [Live Dispatch] Scraping live Non-Tech listings (Remote + Startups)...');
+          logger.info('🚀 [Live Dispatch] Scraping live Non-Tech listings (Company Careers + Remote + Startups)...');
           try {
-            const remoteJobs = await scraperManager.runSource('remote');
+            const careerJobs = await scraperManager.runSource('careers');
+            rawJobs.push(...careerJobs);
+          } catch (e) {
+            logger.warn('Careers scraper error: %s', (e as Error).message);
+          }
+          try {
+            const remoteJobs = await scraperManager.runSource('public-feeds');
             rawJobs.push(...remoteJobs);
           } catch (e) {
             logger.warn('Remote scraper error: %s', (e as Error).message);
           }
           try {
-            const startupJobs = await scraperManager.runSource('curated-startups');
+            const startupJobs = await scraperManager.runSource('startup-boards');
             rawJobs.push(...startupJobs);
           } catch (e) {
             logger.warn('Startups scraper error: %s', (e as Error).message);
@@ -343,7 +349,10 @@ program
           const text = `${j.title} ${j.description}`;
           const exp = extractExperience(text, 'NON_TECH');
           if (!exp.isFresherEligible) return false;
-          return /\b(marketing|sales|operations|hr|human resources|business|finance|content|designer|support|analyst|associate)\b/i.test(j.title);
+          if (/\b(software engineer|developer|frontend|backend|fullstack|devops|cloud architect|sre|qa engineer|data engineer)\b/i.test(j.title)) {
+            return false;
+          }
+          return /\b(marketing|sales|operations|hr|human resources|people|recruiter|talent|business|finance|accountant|content|copywriter|writer|designer|ui\/ux|support|customer|success|analyst|associate|coordinator|specialist|representative|executive|administrative|admin)\b/i.test(j.title);
         });
       } else {
         // COHORT, REFERRAL, COMMUNITY
