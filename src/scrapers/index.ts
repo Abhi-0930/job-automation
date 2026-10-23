@@ -59,10 +59,20 @@ export class ScraperManager {
   }
 
   /**
-   * Runs a single scraper by source name (e.g. 'linkedin', 'internshala', 'wellfound', 'careers').
+   * Runs a single scraper by source name (e.g. 'linkedin', 'internshala', 'wellfound', 'careers', 'public-feeds').
    */
   public async runSource(source: string): Promise<RawScrapedJob[]> {
-    const target = this.scrapers.find((s) => s.source.toLowerCase() === source.toLowerCase());
+    const normalized = source.toLowerCase();
+    const sourceAliases: Record<string, string> = {
+      remote: 'public-feeds',
+      feeds: 'public-feeds',
+      startups: 'startup-boards',
+      'curated-startups': 'startup-boards',
+      internships: 'niche-internships',
+    };
+    const targetSource = sourceAliases[normalized] || normalized;
+
+    const target = this.scrapers.find((s) => s.source.toLowerCase() === targetSource);
     if (!target) {
       throw new Error(`Scraper not found for source: ${source}`);
     }
