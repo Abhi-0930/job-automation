@@ -1,7 +1,9 @@
 node_modules/
 dist/
 logs/
-data/
+data/*
+!data/session_bundle.enc
+!data/live_published_history.json
 .env
 .DS_Store
 Thumbs.db
