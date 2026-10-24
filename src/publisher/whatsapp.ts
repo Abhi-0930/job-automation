@@ -281,7 +281,7 @@ export class WhatsAppPublisher {
               'span[data-icon="msg-check"], span[data-icon="msg-dblcheck"], span[data-icon="status-check"], span[data-icon="status-dblcheck"]'
             );
             const errorIcons = main.querySelectorAll(
-              'span[data-icon="msg-error"], span[data-icon="alert-error"]'
+              'span[data-icon="msg-error"], span[data-icon="alert-error"], [data-testid="fail-container"], [aria-label*="Something went wrong"]'
             );
             return {
               pending: pendingIcons.length,
@@ -290,16 +290,25 @@ export class WhatsAppPublisher {
             };
           });
 
-          // If there's an error icon, click it to retry
+          // If there's an error icon, click it and trigger Retry in modal
           if (status.error > 0) {
-            const retryBtn = await page.$('#main span[data-icon="msg-error"], #main span[data-icon="alert-error"]');
-            if (retryBtn) {
+            const failBtn = await page.$(
+              '[data-testid="fail-container"] div[role="button"], span[data-icon="msg-error"], span[data-icon="alert-error"], [data-testid="fail-container"]'
+            );
+            if (failBtn) {
               logger.warn('⚠️ Detected message error icon, clicking to retry...');
-              await retryBtn.click({ force: true }).catch(() => { });
+              await failBtn.click({ force: true }).catch(() => { });
+              await page.waitForTimeout(1000);
+              const tryAgainBtn = await page.$(
+                'div[role="dialog"] button:has-text("Try again"), div[role="dialog"] [role="button"]:has-text("Try again")'
+              );
+              if (tryAgainBtn) {
+                await tryAgainBtn.click({ force: true }).catch(() => { });
+              }
             }
           }
 
-          if (status.checks > 0 && status.pending === 0) {
+          if (status.checks > 0 && status.pending === 0 && status.error === 0) {
             confirmedDelivery = true;
             logger.info('✅ Confirmed! WhatsApp server acknowledged message delivery (checkmark received).');
             break;
@@ -309,11 +318,11 @@ export class WhatsAppPublisher {
         }
 
         if (!confirmedDelivery) {
-          logger.warn('⚠️ Pending clock icon took longer than usual. Allowing extra buffer for socket sync...');
+          logger.error('❌ Message delivery was not confirmed by WhatsApp server (remained in pending or error state). Please ensure your phone is online and synced.');
+        } else {
+          sentCount++;
+          logger.info('🚀 [Alert %d/%d] Successfully posted to WhatsApp!', idx + 1, messages.length);
         }
-
-        sentCount++;
-        logger.info('🚀 [Alert %d/%d] Successfully posted to WhatsApp!', idx + 1, messages.length);
 
         // Pacing delay between batch messages to prevent WhatsApp anti-spam flags
         if (idx < messages.length - 1) {
