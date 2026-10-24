@@ -198,17 +198,18 @@ export class WhatsAppPublisher {
 
       // 2. Open Target Chat
       const cleanGroupName = groupName.replace(/^["']+|["']+$/g, '').trim();
+      const safeGroupRegex = new RegExp(cleanGroupName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
       logger.info('🔍 Finding and opening target chat "%s"...', cleanGroupName);
 
       // Helper function to find and click matching chat
       const findAndClickChat = async (): Promise<boolean> => {
         try {
-          const exactSpan = page.locator('#pane-side span[title]').filter({ hasText: new RegExp(cleanGroupName, 'i') }).first();
+          const exactSpan = page.locator('#pane-side span[title]').filter({ hasText: safeGroupRegex }).first();
           if (await exactSpan.isVisible({ timeout: 1500 }).catch(() => false)) {
             await exactSpan.click({ force: true });
             return true;
           }
-          const listItem = page.locator('#pane-side div[role="listitem"]').filter({ hasText: new RegExp(cleanGroupName, 'i') }).first();
+          const listItem = page.locator('#pane-side div[role="listitem"]').filter({ hasText: safeGroupRegex }).first();
           if (await listItem.isVisible({ timeout: 1500 }).catch(() => false)) {
             await listItem.click({ force: true });
             return true;
@@ -232,6 +233,7 @@ export class WhatsAppPublisher {
         await searchInput.click({ force: true });
         await page.keyboard.press('Control+A');
         await page.keyboard.press('Backspace');
+        await page.waitForTimeout(300);
         await page.keyboard.type(cleanGroupName, { delay: 40 });
         await page.waitForTimeout(2500);
 
@@ -257,7 +259,7 @@ export class WhatsAppPublisher {
 
       // 3. Confirm Conversation Header is Active
       try {
-        await page.waitForSelector('#main header', { timeout: 15000 });
+        await page.waitForSelector('#main header', { timeout: 20000 });
       } catch (err) {
         const visibleChats = await page.evaluate(() => {
           return Array.from(document.querySelectorAll('#pane-side span[title]'))
