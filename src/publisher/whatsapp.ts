@@ -197,18 +197,34 @@ export class WhatsAppPublisher {
       await page.keyboard.press('Escape').catch(() => { });
 
       // 2. Open Target Chat
-      logger.info('🔍 Finding and opening target chat "%s"...', groupName);
+      const cleanGroupName = groupName.replace(/^["']+|["']+$/g, '').trim();
+      logger.info('🔍 Finding and opening target chat "%s"...', cleanGroupName);
+
+      // Helper function to find and click matching chat
+      const findAndClickChat = async (): Promise<boolean> => {
+        try {
+          const exactSpan = page.locator('#pane-side span[title]').filter({ hasText: new RegExp(cleanGroupName, 'i') }).first();
+          if (await exactSpan.isVisible({ timeout: 1500 }).catch(() => false)) {
+            await exactSpan.click({ force: true });
+            return true;
+          }
+          const listItem = page.locator('#pane-side div[role="listitem"]').filter({ hasText: new RegExp(cleanGroupName, 'i') }).first();
+          if (await listItem.isVisible({ timeout: 1500 }).catch(() => false)) {
+            await listItem.click({ force: true });
+            return true;
+          }
+        } catch { }
+        return false;
+      };
 
       // Strategy A: Check if target chat is directly visible in recent chat list
-      const chatSpan = page.locator('#pane-side span[title]').filter({ hasText: groupName }).first();
-      const isDirectlyVisible = await chatSpan.isVisible({ timeout: 2000 }).catch(() => false);
+      const openedDirectly = await findAndClickChat();
 
-      if (isDirectlyVisible) {
-        logger.info('   Found "%s" in recent chats. Clicking to open conversation...', groupName);
-        await chatSpan.click({ force: true });
+      if (openedDirectly) {
+        logger.info('   Found "%s" in recent chats. Opened conversation.', cleanGroupName);
       } else {
         // Strategy B: Search for target chat in search bar
-        logger.info('   Searching for "%s" in chat search bar...', groupName);
+        logger.info('   Searching for "%s" in chat search bar...', cleanGroupName);
         const searchInput = page.locator(
           'div[contenteditable="true"][data-tab="3"], #side div[contenteditable="true"], input[aria-label*="Search"]'
         ).first();
@@ -216,20 +232,42 @@ export class WhatsAppPublisher {
         await searchInput.click({ force: true });
         await page.keyboard.press('Control+A');
         await page.keyboard.press('Backspace');
-        await page.keyboard.type(groupName, { delay: 40 });
-        await page.waitForTimeout(2000);
+        await page.keyboard.type(cleanGroupName, { delay: 40 });
+        await page.waitForTimeout(2500);
 
-        const searchMatch = page.locator('#pane-side span[title]').filter({ hasText: groupName }).first();
-        if (await searchMatch.isVisible({ timeout: 4000 }).catch(() => false)) {
-          await searchMatch.click({ force: true });
+        // Try clicking search result item
+        const clickedResult = await findAndClickChat();
+        if (clickedResult) {
+          logger.info('   Clicked matching search result for "%s".', cleanGroupName);
         } else {
-          // Fallback: press Enter on active search input
-          await page.keyboard.press('Enter');
+          // If title exact match didn't trigger, click first search result row in list
+          const firstResultRow = page.locator('#pane-side div[role="listitem"], #pane-side div[data-testid="cell-frame-container"]').first();
+          if (await firstResultRow.isVisible({ timeout: 2000 }).catch(() => false)) {
+            logger.info('   Selecting first search result row in list...');
+            await firstResultRow.click({ force: true });
+          } else {
+            // Keyboard fallback: ArrowDown selects first result from search list, then Enter opens it
+            logger.info('   Selecting search result via ArrowDown + Enter...');
+            await page.keyboard.press('ArrowDown');
+            await page.waitForTimeout(400);
+            await page.keyboard.press('Enter');
+          }
         }
       }
 
       // 3. Confirm Conversation Header is Active
-      await page.waitForSelector('#main header', { timeout: 15000 });
+      try {
+        await page.waitForSelector('#main header', { timeout: 15000 });
+      } catch (err) {
+        const visibleChats = await page.evaluate(() => {
+          return Array.from(document.querySelectorAll('#pane-side span[title]'))
+            .map((el) => el.getAttribute('title'))
+            .filter(Boolean);
+        });
+        logger.error('❌ Could not open chat "%s". Currently visible chats on WhatsApp: %s', cleanGroupName, JSON.stringify(visibleChats));
+        throw err;
+      }
+
       const openHeaderTitle = await page.evaluate(() => {
         return document.querySelector('#main header span[title]')?.getAttribute('title') || 'Active Chat';
       });
