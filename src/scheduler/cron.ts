@@ -7,6 +7,24 @@ import { logger } from '../config/logger.js';
 export class SchedulerService {
   private tasks: cron.ScheduledTask[] = [];
 
+  private registerSchedule(
+    cronConfig: string,
+    label: string,
+    action: () => Promise<void>,
+    tzOptions: { timezone: string }
+  ): void {
+    const expressions = cronConfig
+      .split(/[|;]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    for (const expr of expressions) {
+      const task = cron.schedule(expr, action, tzOptions);
+      this.tasks.push(task);
+      logger.info('   ✔ %s: %s', label, expr);
+    }
+  }
+
   /**
    * Initializes all cron schedules.
    */
@@ -16,8 +34,9 @@ export class SchedulerService {
     const tzOptions = { timezone: 'Asia/Kolkata' };
 
     // 1. Scraping & Ingestion Task (Default: Every 15 minutes)
-    const collectionTask = cron.schedule(
+    this.registerSchedule(
       env.CRON_COLLECTION,
+      'Job Collection (Every 15m IST)',
       async () => {
         logger.info('⏰ [CRON TRIGGER] Running 15-Minute Job Collection...');
         try {
@@ -28,14 +47,28 @@ export class SchedulerService {
       },
       tzOptions
     );
-    this.tasks.push(collectionTask);
-    logger.info('   ✔ Job Collection (Every 15m IST): %s', env.CRON_COLLECTION);
 
-    // 2. Tech Jobs Publishing (2x Daily: 9:00 AM & 4:00 PM IST)
-    const techTask = cron.schedule(
-      env.CRON_TECH,
+    // 2. Government Jobs Publishing (8:45 AM & 8:15 PM IST)
+    this.registerSchedule(
+      env.CRON_GOVT,
+      'Govt Jobs (IST)',
       async () => {
-        logger.info('⏰ [CRON TRIGGER] Publishing Top Tech Jobs Batch (2x Daily Slot)...');
+        logger.info('⏰ [CRON TRIGGER] Publishing Top Govt Jobs...');
+        try {
+          await publishingQueue.publishCategoryBatch('GOVT');
+        } catch (error) {
+          logger.error('Error during Govt publishing: %s', (error as Error).message);
+        }
+      },
+      tzOptions
+    );
+
+    // 3. Tech Jobs Publishing (9:45 AM & 6:15 PM IST)
+    this.registerSchedule(
+      env.CRON_TECH,
+      'Tech Jobs (IST)',
+      async () => {
+        logger.info('⏰ [CRON TRIGGER] Publishing Top Tech Jobs...');
         try {
           await publishingQueue.publishCategoryBatch('TECH');
         } catch (error) {
@@ -44,46 +77,28 @@ export class SchedulerService {
       },
       tzOptions
     );
-    this.tasks.push(techTask);
-    logger.info('   ✔ Tech Jobs (2x Daily IST): %s', env.CRON_TECH);
 
-    // 3. Government Jobs Publishing (Default: 11:00 AM IST)
-    const govtTask = cron.schedule(
-      env.CRON_GOVT,
-      async () => {
-        logger.info('⏰ [CRON TRIGGER] 11:00 AM - Publishing Top Govt Jobs...');
-        try {
-          await publishingQueue.publishCategoryBatch('GOVT');
-        } catch (error) {
-          logger.error('Error during 11:00 AM Govt publishing: %s', (error as Error).message);
-        }
-      },
-      tzOptions
-    );
-    this.tasks.push(govtTask);
-    logger.info('   ✔ 11:00 AM Govt Jobs (IST): %s', env.CRON_GOVT);
-
-    // 4. Internships Publishing (Default: 1:00 PM IST)
-    const internshipTask = cron.schedule(
+    // 4. Internships Publishing (10:15 AM & 5:30 PM IST)
+    this.registerSchedule(
       env.CRON_INTERNSHIP,
+      'Internships (IST)',
       async () => {
-        logger.info('⏰ [CRON TRIGGER] 1:00 PM - Publishing Top Internships...');
+        logger.info('⏰ [CRON TRIGGER] Publishing Top Internships...');
         try {
           await publishingQueue.publishCategoryBatch('INTERNSHIP');
         } catch (error) {
-          logger.error('Error during 1:00 PM Internship publishing: %s', (error as Error).message);
+          logger.error('Error during Internship publishing: %s', (error as Error).message);
         }
       },
       tzOptions
     );
-    this.tasks.push(internshipTask);
-    logger.info('   ✔ 1:00 PM Internships (IST): %s', env.CRON_INTERNSHIP);
 
-    // 5. Non-Tech Jobs Publishing (2x Daily: 2:00 PM & 6:00 PM IST)
-    const nonTechTask = cron.schedule(
+    // 5. Non-Tech Jobs Publishing (11:00 AM & 7:15 PM IST)
+    this.registerSchedule(
       env.CRON_NON_TECH,
+      'Non-Tech Jobs (IST)',
       async () => {
-        logger.info('⏰ [CRON TRIGGER] Publishing Top Non-Tech Jobs Batch (2x Daily Slot)...');
+        logger.info('⏰ [CRON TRIGGER] Publishing Top Non-Tech Jobs...');
         try {
           await publishingQueue.publishCategoryBatch('NON_TECH');
         } catch (error) {
@@ -92,40 +107,36 @@ export class SchedulerService {
       },
       tzOptions
     );
-    this.tasks.push(nonTechTask);
-    logger.info('   ✔ Non-Tech Jobs (2x Daily IST): %s', env.CRON_NON_TECH);
 
-    // 6. Referrals & Networking Publishing (Default: 7:00 PM IST)
-    const referralTask = cron.schedule(
+    // 6. Referrals & Networking (1:45 PM IST)
+    this.registerSchedule(
       env.CRON_REFERRAL,
+      'Referrals & Networking (IST)',
       async () => {
-        logger.info('⏰ [CRON TRIGGER] 7:00 PM - Publishing Top Referrals...');
+        logger.info('⏰ [CRON TRIGGER] Publishing Top Referrals...');
         try {
           await publishingQueue.publishCategoryBatch('REFERRAL');
         } catch (error) {
-          logger.error('Error during 7:00 PM Referrals publishing: %s', (error as Error).message);
+          logger.error('Error during Referrals publishing: %s', (error as Error).message);
         }
       },
       tzOptions
     );
-    this.tasks.push(referralTask);
-    logger.info('   ✔ 7:00 PM Referrals (IST): %s', env.CRON_REFERRAL);
 
-    // 7. Daily Digest Publishing (Default: 8:00 PM IST)
-    const digestTask = cron.schedule(
+    // 7. Daily Digest Publishing (9:00 PM IST)
+    this.registerSchedule(
       env.CRON_DIGEST,
+      'Daily Digest (IST)',
       async () => {
-        logger.info('⏰ [CRON TRIGGER] 8:00 PM - Publishing Daily Digest...');
+        logger.info('⏰ [CRON TRIGGER] Publishing Daily Digest...');
         try {
           await publishingQueue.publishDailyDigest();
         } catch (error) {
-          logger.error('Error during 8:00 PM Daily Digest: %s', (error as Error).message);
+          logger.error('Error during Daily Digest: %s', (error as Error).message);
         }
       },
       tzOptions
     );
-    this.tasks.push(digestTask);
-    logger.info('   ✔ 8:00 PM Daily Digest (IST): %s', env.CRON_DIGEST);
 
     logger.info('✅ All %d cron tasks scheduled and active (Timezone: Asia/Kolkata).', this.tasks.length);
   }
