@@ -68,10 +68,11 @@ jobs:
 
       - name: Run Job Dispatch
         env:
+          TZ: 'Asia/Kolkata'
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           WHATSAPP_SESSION_PATH: './data/whatsapp_session'
-          WHATSAPP_HEADLESS: 'true'
+          WHATSAPP_HEADLESS: 'false'
           WHATSAPP_GROUP_TECH: ${{ secrets.WHATSAPP_GROUP_TECH || 'Tech Jobs' }}
           WHATSAPP_GROUP_INTERNSHIP: ${{ secrets.WHATSAPP_GROUP_INTERNSHIP || 'Internships' }}
           WHATSAPP_GROUP_NON_TECH: ${{ secrets.WHATSAPP_GROUP_NON_TECH || 'Non-Tech Jobs' }}
@@ -80,13 +81,18 @@ jobs:
           WHATSAPP_GROUP_COMMUNITY: ${{ secrets.WHATSAPP_GROUP_COMMUNITY || 'Daily Highlights' }}
           CATEGORY_INPUT: ${{ github.event.inputs.category }}
         run: |
+          # Helper to execute with real X11 virtual display (bypasses headless detection)
+          run_with_display() {
+            xvfb-run -a --server-args="-screen 0 1280x800x24 -ac -nolisten tcp" "$@"
+          }
+
           # If triggered manually via workflow_dispatch
           if [ -n "$CATEGORY_INPUT" ]; then
             echo "🚀 Manual dispatch for category: $CATEGORY_INPUT"
             if [ "$CATEGORY_INPUT" = "DIGEST" ]; then
-              npx tsx src/cli/index.ts publish --digest
+              run_with_display npx tsx src/cli/index.ts publish --digest
             else
-              npx tsx src/cli/index.ts live --category "$CATEGORY_INPUT" --limit 1
+              run_with_display npx tsx src/cli/index.ts live --category "$CATEGORY_INPUT" --limit 1
             fi
             exit 0
           fi
@@ -100,48 +106,48 @@ jobs:
           case "$HOUR" in
             "03")
               echo "Executing: Govt Jobs Slot 1 (8:45 AM IST)"
-              npx tsx src/cli/index.ts live --category GOVT --limit 1
+              run_with_display npx tsx src/cli/index.ts live --category GOVT --limit 1
               ;;
             "04")
               if [ "$MIN" -ge "30" ]; then
                 echo "Executing: Internships Slot 1 (10:15 AM IST)"
-                npx tsx src/cli/index.ts live --category INTERNSHIP --limit 1
+                run_with_display npx tsx src/cli/index.ts live --category INTERNSHIP --limit 1
               else
                 echo "Executing: Tech Jobs Slot 1 (9:45 AM IST)"
-                npx tsx src/cli/index.ts live --category TECH --limit 1
+                run_with_display npx tsx src/cli/index.ts live --category TECH --limit 1
               fi
               ;;
             "05")
               echo "Executing: Non-Tech Jobs Slot 1 (11:00 AM IST)"
-              npx tsx src/cli/index.ts live --category NON_TECH --limit 1
+              run_with_display npx tsx src/cli/index.ts live --category NON_TECH --limit 1
               ;;
             "08")
               echo "Executing: Referrals & Startups (1:45 PM IST)"
-              npx tsx src/cli/index.ts live --category REFERRAL --limit 1
+              run_with_display npx tsx src/cli/index.ts live --category REFERRAL --limit 1
               ;;
             "12")
               if [ "$MIN" -ge "30" ]; then
                 echo "Executing: Tech Jobs Slot 2 (6:15 PM IST)"
-                npx tsx src/cli/index.ts live --category TECH --limit 1
+                run_with_display npx tsx src/cli/index.ts live --category TECH --limit 1
               else
                 echo "Executing: Internships Slot 2 (5:30 PM IST)"
-                npx tsx src/cli/index.ts live --category INTERNSHIP --limit 1
+                run_with_display npx tsx src/cli/index.ts live --category INTERNSHIP --limit 1
               fi
               ;;
             "13")
               echo "Executing: Non-Tech Jobs Slot 2 (7:15 PM IST)"
-              npx tsx src/cli/index.ts live --category NON_TECH --limit 1
+              run_with_display npx tsx src/cli/index.ts live --category NON_TECH --limit 1
               ;;
             "14")
               echo "Executing: Govt Jobs Slot 2 (8:15 PM IST)"
-              npx tsx src/cli/index.ts live --category GOVT --limit 1
+              run_with_display npx tsx src/cli/index.ts live --category GOVT --limit 1
               ;;
             "15")
               echo "Executing: Daily Digest (9:00 PM IST)"
-              npx tsx src/cli/index.ts publish --digest
+              run_with_display npx tsx src/cli/index.ts publish --digest
               ;;
             *)
               echo "Default dispatch: Tech Jobs"
-              npx tsx src/cli/index.ts live --category TECH --limit 1
+              run_with_display npx tsx src/cli/index.ts live --category TECH --limit 1
               ;;
           esac
