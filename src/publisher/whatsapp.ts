@@ -152,17 +152,31 @@ export class WhatsAppPublisher {
 
       await page.goto('https://web.whatsapp.com', { waitUntil: 'domcontentloaded' });
 
-      // 1. Wait until WhatsApp Web clears the splash screen and loads the chat list (#side)
+      // 1. Wait until WhatsApp Web clears splash and loads #side, or catches logout/QR
       logger.info('⏳ Waiting for WhatsApp Web chat panel (#side) to initialize...');
-      await page.waitForSelector('#side, #pane-side', { timeout: 60000 });
-      await page.waitForTimeout(2000);
+      const readySelector = await Promise.race([
+        page.waitForSelector('#side, #pane-side', { timeout: 60000 }).then(() => 'ready'),
+        page.waitForSelector('canvas[aria-label*="Scan"], div[data-ref]', { timeout: 60000 }).then(() => 'qr'),
+        page.waitForURL((url) => url.href.includes('post_logout=1'), { timeout: 60000 }).then(() => 'logged_out'),
+      ]).catch(() => 'timeout');
 
-      // 1b. Check if logged out
-      if (page.url().includes('post_logout=1')) {
+      if (readySelector === 'logged_out' || page.url().includes('post_logout=1')) {
         throw new Error(
           'WhatsApp session was logged out (?post_logout=1). Please re-authenticate locally using `npm run auth:whatsapp`.'
         );
       }
+
+      if (readySelector === 'qr') {
+        throw new Error(
+          'WhatsApp session expired or requires QR scan. Please re-authenticate locally using `npm run auth:whatsapp`.'
+        );
+      }
+
+      if (readySelector === 'timeout') {
+        throw new Error('Timeout waiting for WhatsApp Web to load #side panel.');
+      }
+
+      await page.waitForTimeout(2000);
 
       // 1c. Bypass any promo dialogs
       try {
