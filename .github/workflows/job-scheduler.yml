@@ -71,16 +71,7 @@ jobs:
           SESSION_PASSWORD: ${{ secrets.SESSION_PASSWORD }}
         run: |
           mkdir -p data
-          if [ -f "./data/session_bundle.enc" ] && [ -n "$SESSION_PASSWORD" ]; then
-            echo "🔓 Decrypting session_bundle.enc..."
-            openssl enc -d -aes-256-cbc -pbkdf2 -in ./data/session_bundle.enc -out ./data/session_bundle.tar.gz -pass pass:"$SESSION_PASSWORD"
-            tar -xzf ./data/session_bundle.tar.gz -C ./data
-            echo "✅ Session restored from encrypted bundle!"
-          elif [ -f "./data/session_bundle.tar.gz" ]; then
-            echo "📦 Extracting session_bundle.tar.gz..."
-            tar -xzf ./data/session_bundle.tar.gz -C ./data
-            echo "✅ Session extracted from bundle!"
-          fi
+          npx tsx scripts/decrypt_session.ts
 
       - name: Run Job Dispatch
         env:
