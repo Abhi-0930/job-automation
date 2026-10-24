@@ -1,0 +1,147 @@
+name: Automated WhatsApp Job Dispatcher
+
+on:
+  schedule:
+    # Government Jobs Slot 1 (08:45 AM IST = 03:15 UTC)
+    - cron: '15 3 * * *'
+    # Tech Jobs Slot 1 (09:45 AM IST = 04:15 UTC)
+    - cron: '15 4 * * *'
+    # Internships Slot 1 (10:15 AM IST = 04:45 UTC)
+    - cron: '45 4 * * *'
+    # Non-Tech Jobs Slot 1 (11:00 AM IST = 05:30 UTC)
+    - cron: '30 5 * * *'
+    # Referrals & Startups (01:45 PM IST = 08:15 UTC)
+    - cron: '15 8 * * *'
+    # Internships Slot 2 (05:30 PM IST = 12:00 UTC)
+    - cron: '0 12 * * *'
+    # Tech Jobs Slot 2 (06:15 PM IST = 12:45 UTC)
+    - cron: '45 12 * * *'
+    # Non-Tech Jobs Slot 2 (07:15 PM IST = 13:45 UTC)
+    - cron: '45 13 * * *'
+    # Government Jobs Slot 2 (08:15 PM IST = 14:45 UTC)
+    - cron: '45 14 * * *'
+    # Daily Digest (09:00 PM IST = 15:30 UTC)
+    - cron: '30 15 * * *'
+  workflow_dispatch:
+    inputs:
+      category:
+        description: 'Category to dispatch manually'
+        required: true
+        default: 'TECH'
+        type: choice
+        options:
+          - TECH
+          - GOVT
+          - INTERNSHIP
+          - NON_TECH
+          - REFERRAL
+          - DIGEST
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Install Playwright & Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Restore WhatsApp Session Cache
+        uses: actions/cache@v4
+        with:
+          path: data/whatsapp_session
+          key: whatsapp-session-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            whatsapp-session-${{ runner.os }}-
+
+      - name: Run Job Dispatch
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          WHATSAPP_SESSION_PATH: './data/whatsapp_session'
+          WHATSAPP_HEADLESS: 'true'
+          WHATSAPP_GROUP_TECH: ${{ secrets.WHATSAPP_GROUP_TECH || 'Tech Jobs' }}
+          WHATSAPP_GROUP_INTERNSHIP: ${{ secrets.WHATSAPP_GROUP_INTERNSHIP || 'Internships' }}
+          WHATSAPP_GROUP_NON_TECH: ${{ secrets.WHATSAPP_GROUP_NON_TECH || 'Non-Tech Jobs' }}
+          WHATSAPP_GROUP_GOVT: ${{ secrets.WHATSAPP_GROUP_GOVT || 'Government Jobs' }}
+          WHATSAPP_GROUP_REFERRAL: ${{ secrets.WHATSAPP_GROUP_REFERRAL || 'Referrals & Networking' }}
+          WHATSAPP_GROUP_COMMUNITY: ${{ secrets.WHATSAPP_GROUP_COMMUNITY || 'Daily Highlights' }}
+          CATEGORY_INPUT: ${{ github.event.inputs.category }}
+        run: |
+          # If triggered manually via workflow_dispatch
+          if [ -n "$CATEGORY_INPUT" ]; then
+            echo "🚀 Manual dispatch for category: $CATEGORY_INPUT"
+            if [ "$CATEGORY_INPUT" = "DIGEST" ]; then
+              npx tsx src/cli/index.ts publish --digest
+            else
+              npx tsx src/cli/index.ts live --category "$CATEGORY_INPUT" --limit 1
+            fi
+            exit 0
+          fi
+
+          # If triggered on cron schedule, detect current UTC hour and dispatch target
+          HOUR=$(date -u +"%H")
+          MIN=$(date -u +"%M")
+          echo "⏰ Cron triggered at UTC: ${HOUR}:${MIN}"
+
+          # Match UTC time to target category
+          case "$HOUR" in
+            "03")
+              echo "Executing: Govt Jobs Slot 1 (8:45 AM IST)"
+              npx tsx src/cli/index.ts live --category GOVT --limit 1
+              ;;
+            "04")
+              if [ "$MIN" -ge "30" ]; then
+                echo "Executing: Internships Slot 1 (10:15 AM IST)"
+                npx tsx src/cli/index.ts live --category INTERNSHIP --limit 1
+              else
+                echo "Executing: Tech Jobs Slot 1 (9:45 AM IST)"
+                npx tsx src/cli/index.ts live --category TECH --limit 1
+              fi
+              ;;
+            "05")
+              echo "Executing: Non-Tech Jobs Slot 1 (11:00 AM IST)"
+              npx tsx src/cli/index.ts live --category NON_TECH --limit 1
+              ;;
+            "08")
+              echo "Executing: Referrals & Startups (1:45 PM IST)"
+              npx tsx src/cli/index.ts live --category REFERRAL --limit 1
+              ;;
+            "12")
+              if [ "$MIN" -ge "30" ]; then
+                echo "Executing: Tech Jobs Slot 2 (6:15 PM IST)"
+                npx tsx src/cli/index.ts live --category TECH --limit 1
+              else
+                echo "Executing: Internships Slot 2 (5:30 PM IST)"
+                npx tsx src/cli/index.ts live --category INTERNSHIP --limit 1
+              fi
+              ;;
+            "13")
+              echo "Executing: Non-Tech Jobs Slot 2 (7:15 PM IST)"
+              npx tsx src/cli/index.ts live --category NON_TECH --limit 1
+              ;;
+            "14")
+              echo "Executing: Govt Jobs Slot 2 (8:15 PM IST)"
+              npx tsx src/cli/index.ts live --category GOVT --limit 1
+              ;;
+            "15")
+              echo "Executing: Daily Digest (9:00 PM IST)"
+              npx tsx src/cli/index.ts publish --digest
+              ;;
+            *)
+              echo "Default dispatch: Tech Jobs"
+              npx tsx src/cli/index.ts live --category TECH --limit 1
+              ;;
+          esac
