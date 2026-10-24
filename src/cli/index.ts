@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { Command } from 'commander';
 import { connectDatabase, disconnectDatabase } from '../database/prisma.js';
 import { jobCollector } from '../jobs/collector.js';
@@ -396,14 +398,30 @@ program
         return true;
       });
 
+      // Persistent cross-run deduplication: prevent re-sending jobs already dispatched
+      const historyFile = path.resolve(process.cwd(), 'data', 'live_published_history.json');
+      let publishedHistory: string[] = [];
+      try {
+        if (fs.existsSync(historyFile)) {
+          publishedHistory = JSON.parse(fs.readFileSync(historyFile, 'utf-8'));
+        }
+      } catch { }
+
+      const unpostedJobs = validJobs.filter((j) => {
+        const key = `${j.title}|${j.company}`.toLowerCase().replace(/[^a-z0-9]/g, '');
+        return !publishedHistory.includes(key) && !publishedHistory.includes(j.url);
+      });
+
+      const candidatePool = unpostedJobs.length > 0 ? unpostedJobs : validJobs;
       const isAll = options.limit === 'all' || options.all;
-      const limit = isAll ? validJobs.length : parseInt(options.limit, 10) || validJobs.length;
-      const targetJobs = validJobs.slice(0, limit);
+      const limit = isAll ? candidatePool.length : parseInt(options.limit, 10) || candidatePool.length;
+      const targetJobs = candidatePool.slice(0, limit);
 
       logger.info(
-        'Fetched %d live listings (%d eligible openings). Preparing %d alert(s) for WhatsApp group "%s"...',
+        'Fetched %d live listings (%d eligible openings, %d unposted). Preparing %d alert(s) for WhatsApp group "%s"...',
         rawJobs.length,
         validJobs.length,
+        unpostedJobs.length,
         targetJobs.length,
         targetGroup
       );
@@ -441,7 +459,15 @@ program
       // Dispatch all messages in a single continuous session
       const result = await whatsAppPublisher.sendBatchMessages(targetGroup, messages);
 
-      if (result.success) {
+      if (result.success && result.sent > 0) {
+        try {
+          const sentKeys = targetJobs.slice(0, result.sent).flatMap((j) => [
+            `${j.title}|${j.company}`.toLowerCase().replace(/[^a-z0-9]/g, ''),
+            j.url,
+          ]);
+          const updatedHistory = Array.from(new Set([...publishedHistory, ...sentKeys])).slice(-2000);
+          fs.writeFileSync(historyFile, JSON.stringify(updatedHistory, null, 2), 'utf-8');
+        } catch { }
         logger.info('🎉 Done! Successfully published %d/%d alert(s) to WhatsApp group "%s".', result.sent, messages.length, targetGroup);
       } else {
         logger.error('⚠️ Finished with error: %s (Sent %d/%d)', result.error, result.sent, messages.length);
