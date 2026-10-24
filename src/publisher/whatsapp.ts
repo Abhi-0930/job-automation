@@ -6,10 +6,7 @@ import { logger } from '../config/logger.js';
 import { backupSessionToCloud, restoreSessionFromCloud } from './session-sync.js';
 
 const getRealisticUserAgent = () => {
-  if (process.platform === 'linux') {
-    return 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
-  }
-  return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
+  return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36';
 };
 
 export class WhatsAppPublisher {
@@ -147,17 +144,8 @@ export class WhatsAppPublisher {
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
           '--disable-gpu',
-          '--disable-software-rasterizer',
-          '--disable-extensions',
-          '--disable-background-networking',
-          '--disable-breakpad',
-          '--disable-ipc-flooding-protection',
-          '--disable-renderer-backgrounding',
-          '--force-color-profile=srgb',
-          '--metrics-recording-only',
           '--no-first-run',
           '--disable-blink-features=AutomationControlled',
-          '--js-flags=--max-old-space-size=256',
         ],
         ignoreDefaultArgs: ['--enable-automation'],
       });
