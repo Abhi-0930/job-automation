@@ -22,9 +22,20 @@ if (!fs.existsSync(sessionDir) && !fs.existsSync(tarFile)) {
 
 // 1. Pack whatsapp_session if it exists
 if (fs.existsSync(sessionDir)) {
-  console.log('📦 Packaging whatsapp_session (excluding temporary browser caches)...');
+  console.log('📦 Packaging whatsapp_session (excluding temporary browser caches, preserving Service Worker)...');
   try {
-    execSync('tar --exclude="*Cache*" --exclude="*/Cache/*" -czf ./data/session_bundle.tar.gz -C ./data whatsapp_session');
+    execSync(
+      'tar ' +
+      '--exclude="whatsapp_session/Default/Cache" ' +
+      '--exclude="whatsapp_session/Default/Code Cache" ' +
+      '--exclude="whatsapp_session/Default/DawnGraphiteCache" ' +
+      '--exclude="whatsapp_session/Default/DawnWebGPUCache" ' +
+      '--exclude="whatsapp_session/Default/GPUCache" ' +
+      '--exclude="whatsapp_session/GrShaderCache" ' +
+      '--exclude="whatsapp_session/ShaderCache" ' +
+      '--exclude="whatsapp_session/Crashpad" ' +
+      '-czf ./data/session_bundle.tar.gz -C ./data whatsapp_session'
+    );
     console.log('✅ Created optimized session archive.');
   } catch (err) {
     console.error('❌ Failed to create tarball:', (err as Error).message);
