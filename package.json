@@ -9,6 +9,8 @@
     "dev": "tsx watch src/app.ts",
     "cli": "tsx src/cli/index.ts",
     "auth:whatsapp": "tsx src/cli/index.ts auth",
+    "session:encrypt": "tsx scripts/encrypt_session.ts",
+    "session:decrypt": "tsx scripts/decrypt_session.ts",
     "session:push": "tsx src/cli/index.ts session:push",
     "session:pull": "tsx src/cli/index.ts session:pull",
     "scrape": "tsx src/cli/index.ts scrape",
