@@ -2,7 +2,7 @@ import { generateJobHash, normalizeText } from '../src/jobs/deduplicate.js';
 import { classifyJob } from '../src/ai/classify.js';
 import { scoreJob } from '../src/ai/score.js';
 import { formatWhatsAppJobMessage, formatDailyDigestMessage } from '../src/ai/formatter.js';
-import { CareersScraper } from '../src/scrapers/careers/careers.scraper.js';
+import { PublicFeedsScraper } from '../src/scrapers/remote/feed.scraper.js';
 
 let passed = 0;
 let failed = 0;
@@ -164,21 +164,21 @@ async function runTests() {
   }
 
   // ----------------------------------------------------
-  // TEST SUITE 5: Live Careers Scraper Test (Greenhouse / Lever ATS)
+  // TEST SUITE 5: Live Open Tech Feeds Scraper Test (RemoteOK, Remotive, WWR, HN, Jobicy)
   // ----------------------------------------------------
-  console.log('\n🌐 5. Testing Careers Scraper (Direct ATS API):');
+  console.log('\n🌐 5. Testing Open Tech Platforms & Feeds Scraper:');
   {
     try {
-      const careersScraper = new CareersScraper();
-      const jobs = await careersScraper.execute();
-      assert(Array.isArray(jobs), 'Careers scraper returns an array');
-      console.log(`     -> Live scraped ${jobs.length} direct company career jobs!`);
+      const feedScraper = new PublicFeedsScraper();
+      const jobs = await feedScraper.execute();
+      assert(Array.isArray(jobs), 'Public feeds scraper returns an array');
+      console.log(`     -> Live scraped ${jobs.length} open platform tech jobs!`);
       if (jobs.length > 0) {
         console.log(`     -> Sample Job: "${jobs[0].title}" at ${jobs[0].company} (${jobs[0].location})`);
         assert(jobs[0].url.startsWith('http'), 'Job URL is valid absolute URL');
       }
     } catch (err) {
-      console.warn('     -> Careers scraper skipped network test or encountered timeout: %s', (err as Error).message);
+      console.warn('     -> Public feeds scraper skipped network test or encountered timeout: %s', (err as Error).message);
     }
   }
 
