@@ -32,6 +32,10 @@ try {
 
   fs.writeFileSync(tarFile, decrypted);
   console.log('📦 Extracting session tarball to ./data...');
+  const targetDir = path.resolve('./data/whatsapp_session');
+  if (fs.existsSync(targetDir)) {
+    fs.rmSync(targetDir, { recursive: true, force: true });
+  }
   execSync(`tar -xzf "${tarFile}" -C ./data`);
   fs.unlinkSync(tarFile);
   console.log('🎉 WhatsApp session successfully restored in ./data/whatsapp_session!');
