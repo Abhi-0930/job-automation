@@ -206,18 +206,36 @@ program
       switch (category) {
         case 'TECH':
           if (!targetGroup) targetGroup = env.WHATSAPP_GROUP_TECH;
-          logger.info('🚀 [Live Dispatch] Scraping live Tech listings (Company Careers + Remote)...');
+          logger.info('🚀 [Live Dispatch] Scraping live Tech listings across all platforms (Feeds, Startups, Wellfound, LinkedIn, Naukri)...');
           try {
-            const careerJobs = await scraperManager.runSource('careers');
-            rawJobs.push(...careerJobs);
+            const feedJobs = await scraperManager.runSource('public-feeds');
+            rawJobs.push(...feedJobs);
           } catch (e) {
-            logger.warn('Careers scraper error: %s', (e as Error).message);
+            logger.warn('Public feeds error: %s', (e as Error).message);
           }
           try {
-            const remoteJobs = await scraperManager.runSource('remote');
-            rawJobs.push(...remoteJobs);
+            const startupJobs = await scraperManager.runSource('startup-boards');
+            rawJobs.push(...startupJobs);
           } catch (e) {
-            logger.warn('Remote scraper error: %s', (e as Error).message);
+            logger.warn('Startups scraper error: %s', (e as Error).message);
+          }
+          try {
+            const wellfoundJobs = await scraperManager.runSource('wellfound');
+            rawJobs.push(...wellfoundJobs);
+          } catch (e) {
+            logger.warn('Wellfound scraper error: %s', (e as Error).message);
+          }
+          try {
+            const liJobs = await scraperManager.runSource('linkedin');
+            rawJobs.push(...liJobs);
+          } catch (e) {
+            logger.warn('LinkedIn scraper error: %s', (e as Error).message);
+          }
+          try {
+            const naukriJobs = await scraperManager.runSource('naukri');
+            rawJobs.push(...naukriJobs);
+          } catch (e) {
+            logger.warn('Naukri scraper error: %s', (e as Error).message);
           }
           break;
 
@@ -240,13 +258,7 @@ program
 
         case 'NON_TECH':
           if (!targetGroup) targetGroup = env.WHATSAPP_GROUP_NON_TECH;
-          logger.info('🚀 [Live Dispatch] Scraping live Non-Tech listings (Company Careers + Remote + Startups)...');
-          try {
-            const careerJobs = await scraperManager.runSource('careers');
-            rawJobs.push(...careerJobs);
-          } catch (e) {
-            logger.warn('Careers scraper error: %s', (e as Error).message);
-          }
+          logger.info('🚀 [Live Dispatch] Scraping live Non-Tech listings across platforms (Feeds, Startups, LinkedIn, Naukri)...');
           try {
             const remoteJobs = await scraperManager.runSource('public-feeds');
             rawJobs.push(...remoteJobs);
@@ -258,6 +270,18 @@ program
             rawJobs.push(...startupJobs);
           } catch (e) {
             logger.warn('Startups scraper error: %s', (e as Error).message);
+          }
+          try {
+            const liJobs = await scraperManager.runSource('linkedin');
+            rawJobs.push(...liJobs);
+          } catch (e) {
+            logger.warn('LinkedIn scraper error: %s', (e as Error).message);
+          }
+          try {
+            const naukriJobs = await scraperManager.runSource('naukri');
+            rawJobs.push(...naukriJobs);
+          } catch (e) {
+            logger.warn('Naukri scraper error: %s', (e as Error).message);
           }
           break;
 
@@ -299,8 +323,12 @@ program
           if (!targetGroup) targetGroup = env.WHATSAPP_GROUP_COMMUNITY;
           logger.info('🚀 [Live Dispatch] Scraping highlights across categories...');
           try {
-            const cJobs = await scraperManager.runSource('careers');
-            rawJobs.push(...cJobs.slice(0, 10));
+            const fJobs = await scraperManager.runSource('public-feeds');
+            rawJobs.push(...fJobs.slice(0, 10));
+          } catch { }
+          try {
+            const sJobs = await scraperManager.runSource('startup-boards');
+            rawJobs.push(...sJobs.slice(0, 10));
           } catch { }
           try {
             const iJobs = await scraperManager.runSource('internshala');
