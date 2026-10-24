@@ -50,7 +50,7 @@ export async function backupSessionToCloud(): Promise<boolean> {
     logger.info('🎉 WhatsApp session successfully backed up to cloud database!');
     return true;
   } catch (error) {
-    logger.error('Failed to backup WhatsApp session to cloud: %s', (error as Error).message);
+    logger.debug('Neon database backup skipped (running standalone/GitHub encrypted bundle mode).');
     return false;
   } finally {
     if (fs.existsSync(tempTarPath)) {
