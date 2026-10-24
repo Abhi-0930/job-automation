@@ -470,10 +470,12 @@ program
         } catch { }
         logger.info('🎉 Done! Successfully published %d/%d alert(s) to WhatsApp group "%s".', result.sent, messages.length, targetGroup);
       } else {
-        logger.error('⚠️ Finished with error: %s (Sent %d/%d)', result.error, result.sent, messages.length);
+        logger.error('⚠️ Finished with error: %s (Sent %d/%d)', result.error || 'No messages confirmed', result.sent, messages.length);
+        process.exit(1);
       }
     } catch (error) {
       logger.error('Live dispatch error: %s', (error as Error).message);
+      process.exit(1);
     }
   });
 
