@@ -17,7 +17,6 @@ export class ScraperManager {
 
   constructor() {
     this.scrapers = [
-      new CareersScraper(),
       new PublicFeedsScraper(),
       new InternshalaScraper(),
       new LinkedInScraper(),
