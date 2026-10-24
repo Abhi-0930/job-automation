@@ -39,6 +39,21 @@ export class WhatsAppPublisher {
           fs.unlinkSync(filePath);
         }
       }
+
+      // Also clean any LevelDB LOCK files recursively
+      const cleanLocksRecursively = (dir: string) => {
+        if (!fs.existsSync(dir)) return;
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          const fullPath = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            cleanLocksRecursively(fullPath);
+          } else if (entry.name === 'LOCK' || entry.name.endsWith('.lock')) {
+            try { fs.unlinkSync(fullPath); } catch { }
+          }
+        }
+      };
+      cleanLocksRecursively(this.sessionDir);
     } catch {
       // Ignore lock clean failures
     }
