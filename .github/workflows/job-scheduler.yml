@@ -119,60 +119,46 @@ jobs:
             exit 0
           fi
 
-          # If triggered on cron schedule, detect current UTC hour and dispatch target
-          HOUR=$(date -u +"%H")
-          MIN=$(date -u +"%M")
-          echo "⏰ Cron triggered at UTC: ${HOUR}:${MIN}"
+          # If triggered on cron schedule, detect current IST time and dispatch matching slot
+          IST_HM=$(date +"%-H%M")
+          IST_READABLE=$(date +"%I:%M %p")
+          echo "⏰ Cron triggered. Current IST Time: ${IST_READABLE} (HM: ${IST_HM})"
 
-          # Match UTC time to target category
-          case "$HOUR" in
-            "03")
-              echo "Executing: Govt Jobs Slot 1 (8:45 AM IST)"
-              run_dispatch npx tsx src/cli/index.ts live --category GOVT --limit 1
-              ;;
-            "04")
-              if [ "$MIN" -ge "30" ]; then
-                echo "Executing: Internships Slot 1 (10:15 AM IST)"
-                run_dispatch npx tsx src/cli/index.ts live --category INTERNSHIP --limit 1
-              else
-                echo "Executing: Tech Jobs Slot 1 (9:45 AM IST)"
-                run_dispatch npx tsx src/cli/index.ts live --category TECH --limit 1
-              fi
-              ;;
-            "05")
-              echo "Executing: Non-Tech Jobs Slot 1 (11:00 AM IST)"
-              run_dispatch npx tsx src/cli/index.ts live --category NON_TECH --limit 1
-              ;;
-            "08")
-              echo "Executing: Referrals & Startups (1:45 PM IST)"
-              run_dispatch npx tsx src/cli/index.ts live --category REFERRAL --limit 1
-              ;;
-            "12")
-              if [ "$MIN" -ge "30" ]; then
-                echo "Executing: Tech Jobs Slot 2 (6:15 PM IST)"
-                run_dispatch npx tsx src/cli/index.ts live --category TECH --limit 1
-              else
-                echo "Executing: Internships Slot 2 (5:30 PM IST)"
-                run_dispatch npx tsx src/cli/index.ts live --category INTERNSHIP --limit 1
-              fi
-              ;;
-            "13")
-              echo "Executing: Non-Tech Jobs Slot 2 (7:15 PM IST)"
-              run_dispatch npx tsx src/cli/index.ts live --category NON_TECH --limit 1
-              ;;
-            "14")
-              echo "Executing: Govt Jobs Slot 2 (8:15 PM IST)"
-              run_dispatch npx tsx src/cli/index.ts live --category GOVT --limit 1
-              ;;
-            "15")
-              echo "Executing: Daily Digest (9:00 PM IST)"
-              run_dispatch npx tsx src/cli/index.ts publish --digest
-              ;;
-            *)
-              echo "Default dispatch: Tech Jobs"
-              run_dispatch npx tsx src/cli/index.ts live --category TECH --limit 1
-              ;;
-          esac
+          # Match IST time window to target category
+          if [ "$IST_HM" -ge 815 ] && [ "$IST_HM" -le 915 ]; then
+            echo "🎯 Executing: Government Jobs Slot 1 (08:45 AM IST)"
+            run_dispatch npx tsx src/cli/index.ts live --category GOVT --limit 1
+          elif [ "$IST_HM" -ge 916 ] && [ "$IST_HM" -le 1005 ]; then
+            echo "🎯 Executing: Tech Jobs Slot 1 (09:45 AM IST)"
+            run_dispatch npx tsx src/cli/index.ts live --category TECH --limit 1
+          elif [ "$IST_HM" -ge 1006 ] && [ "$IST_HM" -le 1045 ]; then
+            echo "🎯 Executing: Internships Slot 1 (10:15 AM IST)"
+            run_dispatch npx tsx src/cli/index.ts live --category INTERNSHIP --limit 1
+          elif [ "$IST_HM" -ge 1046 ] && [ "$IST_HM" -le 1200 ]; then
+            echo "🎯 Executing: Non-Tech Jobs Slot 1 (11:00 AM IST)"
+            run_dispatch npx tsx src/cli/index.ts live --category NON_TECH --limit 1
+          elif [ "$IST_HM" -ge 1300 ] && [ "$IST_HM" -le 1500 ]; then
+            echo "🎯 Executing: Referrals & Startups (01:45 PM IST)"
+            run_dispatch npx tsx src/cli/index.ts live --category REFERRAL --limit 1
+          elif [ "$IST_HM" -ge 1700 ] && [ "$IST_HM" -le 1759 ]; then
+            echo "🎯 Executing: Internships Slot 2 (05:30 PM IST)"
+            run_dispatch npx tsx src/cli/index.ts live --category INTERNSHIP --limit 1
+          elif [ "$IST_HM" -ge 1800 ] && [ "$IST_HM" -le 1859 ]; then
+            echo "🎯 Executing: Tech Jobs Slot 2 (06:15 PM IST)"
+            run_dispatch npx tsx src/cli/index.ts live --category TECH --limit 1
+          elif [ "$IST_HM" -ge 1900 ] && [ "$IST_HM" -le 1959 ]; then
+            echo "🎯 Executing: Non-Tech Jobs Slot 2 (07:15 PM IST)"
+            run_dispatch npx tsx src/cli/index.ts live --category NON_TECH --limit 1
+          elif [ "$IST_HM" -ge 2000 ] && [ "$IST_HM" -le 2045 ]; then
+            echo "🎯 Executing: Government Jobs Slot 2 (08:15 PM IST)"
+            run_dispatch npx tsx src/cli/index.ts live --category GOVT --limit 1
+          elif [ "$IST_HM" -ge 2046 ] && [ "$IST_HM" -le 2200 ]; then
+            echo "🎯 Executing: Daily Digest (09:00 PM IST)"
+            run_dispatch npx tsx src/cli/index.ts publish --digest
+          else
+            echo "🎯 Outside scheduled windows. Defaulting to Tech Jobs dispatch."
+            run_dispatch npx tsx src/cli/index.ts live --category TECH --limit 1
+          fi
 
       - name: Upload Debug Screenshots
         if: always()
