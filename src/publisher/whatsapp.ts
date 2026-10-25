@@ -198,20 +198,36 @@ export class WhatsAppPublisher {
 
       // 2. Open Target Chat
       const cleanGroupName = groupName.replace(/^["']+|["']+$/g, '').trim();
-      const safeGroupRegex = new RegExp(cleanGroupName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
       logger.info('🔍 Finding and opening target chat "%s"...', cleanGroupName);
 
-      // Helper function to find and click matching chat
+      // Helper function to find and click matching chat with exact title priority
       const findAndClickChat = async (): Promise<boolean> => {
         try {
-          const exactSpan = page.locator('#pane-side span[title]').filter({ hasText: safeGroupRegex }).first();
-          if (await exactSpan.isVisible({ timeout: 1500 }).catch(() => false)) {
-            await exactSpan.click({ force: true });
-            return true;
-          }
-          const listItem = page.locator('#pane-side div[role="listitem"]').filter({ hasText: safeGroupRegex }).first();
-          if (await listItem.isVisible({ timeout: 1500 }).catch(() => false)) {
-            await listItem.click({ force: true });
+          const matchIndex = await page.evaluate((target) => {
+            const spans = Array.from(document.querySelectorAll('#pane-side span[title]'));
+            const normalized = target.trim().toLowerCase();
+
+            // Pass 1: Exact title match (e.g. "Tech Jobs" === "Tech Jobs")
+            for (let i = 0; i < spans.length; i++) {
+              const title = (spans[i].getAttribute('title') || '').trim().toLowerCase();
+              if (title === normalized) return i;
+            }
+
+            // Pass 2: Clean substring match with strict "non-tech" exclusion
+            for (let i = 0; i < spans.length; i++) {
+              const title = (spans[i].getAttribute('title') || '').trim().toLowerCase();
+              // Prevent "Tech Jobs" from ever matching "Non-Tech Jobs"
+              if (title.includes('non-tech') && !normalized.includes('non-tech')) {
+                continue;
+              }
+              if (title.includes(normalized)) return i;
+            }
+            return -1;
+          }, cleanGroupName);
+
+          if (matchIndex !== -1) {
+            const matchedSpan = page.locator('#pane-side span[title]').nth(matchIndex);
+            await matchedSpan.click({ force: true });
             return true;
           }
         } catch { }
@@ -222,7 +238,7 @@ export class WhatsAppPublisher {
       const openedDirectly = await findAndClickChat();
 
       if (openedDirectly) {
-        logger.info('   Found "%s" in recent chats. Opened conversation.', cleanGroupName);
+        logger.info('   Found exact match for "%s" in recent chats. Opened conversation.', cleanGroupName);
       } else {
         // Strategy B: Search for target chat in search bar
         logger.info('   Searching for "%s" in chat search bar...', cleanGroupName);
@@ -237,23 +253,16 @@ export class WhatsAppPublisher {
         await page.keyboard.type(cleanGroupName, { delay: 40 });
         await page.waitForTimeout(2500);
 
-        // Try clicking search result item
+        // Try clicking matched search result item
         const clickedResult = await findAndClickChat();
         if (clickedResult) {
           logger.info('   Clicked matching search result for "%s".', cleanGroupName);
         } else {
-          // If title exact match didn't trigger, click first search result row in list
-          const firstResultRow = page.locator('#pane-side div[role="listitem"], #pane-side div[data-testid="cell-frame-container"]').first();
-          if (await firstResultRow.isVisible({ timeout: 2000 }).catch(() => false)) {
-            logger.info('   Selecting first search result row in list...');
-            await firstResultRow.click({ force: true });
-          } else {
-            // Keyboard fallback: ArrowDown selects first result from search list, then Enter opens it
-            logger.info('   Selecting search result via ArrowDown + Enter...');
-            await page.keyboard.press('ArrowDown');
-            await page.waitForTimeout(400);
-            await page.keyboard.press('Enter');
-          }
+          // Keyboard fallback: ArrowDown selects first result from search list, then Enter opens it
+          logger.info('   Selecting search result via ArrowDown + Enter...');
+          await page.keyboard.press('ArrowDown');
+          await page.waitForTimeout(400);
+          await page.keyboard.press('Enter');
         }
       }
 
