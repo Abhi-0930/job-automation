@@ -152,8 +152,8 @@ jobs:
             echo "🎯 Executing: Daily Digest (09:00 PM IST)"
             run_dispatch npx tsx src/cli/index.ts live --category DIGEST
           else
-            echo "🎯 Outside scheduled windows. Defaulting to Tech Jobs dispatch."
-            run_dispatch npx tsx src/cli/index.ts live --category TECH --limit 1
+            echo "ℹ️ Current time (${IST_READABLE}, HM: ${IST_HM}) is outside all scheduled slots. Skipping dispatch."
+            exit 0
           fi
 
       - name: Upload Debug Screenshots
