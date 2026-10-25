@@ -314,71 +314,79 @@ export class WhatsAppPublisher {
 
         // Send via Enter key
         await page.keyboard.press('Enter');
-        await page.waitForTimeout(500);
+        await page.waitForTimeout(800);
 
-        // Fallback send button click
-        const sendBtn = await page.$('#main button[data-testid="compose-btn-send"], #main span[data-icon="send"]');
-        if (sendBtn) {
-          await sendBtn.click({ force: true }).catch(() => { });
+        // Fallback send button click if text still in box
+        const checkText = await page.evaluate(() => {
+          const box = document.querySelector('#main footer div[contenteditable="true"]');
+          return (box?.textContent || '').trim();
+        });
+
+        if (checkText.length > 0) {
+          logger.info('   Clicking send button explicitly...');
+          const sendBtn = await page.$('#main button[data-testid="compose-btn-send"], #main span[data-icon="send"], #main button[aria-label="Send"]');
+          if (sendBtn) {
+            await sendBtn.click({ force: true }).catch(() => { });
+            await page.waitForTimeout(1000);
+          }
         }
 
-        // 5. Wait for delivery confirmation: verify clock icon transitions to checkmark
+        // 5. Wait for delivery confirmation: verify clock icon transitions to checkmark on latest message
         logger.info('⏳ Waiting for WhatsApp server delivery confirmation (clock 🕒 -> checkmark ✔️)...');
         const startConfirm = Date.now();
         let confirmedDelivery = false;
 
-        while (Date.now() - startConfirm < 25000) {
-          const status = await page.evaluate(() => {
-            const main = document.querySelector('#main');
-            if (!main) return { pending: 1, checks: 0, error: 0 };
-            const pendingIcons = main.querySelectorAll(
-              'span[data-icon="msg-time"], span[data-icon="status-time"], span[data-icon="time"], span[aria-label*="Pending"], span[aria-label*="pending"]'
-            );
-            const checkIcons = main.querySelectorAll(
-              'span[data-icon="msg-check"], span[data-icon="msg-dblcheck"], span[data-icon="status-check"], span[data-icon="status-dblcheck"]'
-            );
-            const errorIcons = main.querySelectorAll(
-              'span[data-icon="msg-error"], span[data-icon="alert-error"], [data-testid="fail-container"], [aria-label*="Something went wrong"]'
-            );
+        while (Date.now() - startConfirm < 30000) {
+          const lastMsgState = await page.evaluate(() => {
+            const outMsgs = document.querySelectorAll('#main div.message-out');
+            const lastOut = outMsgs.length > 0 ? outMsgs[outMsgs.length - 1] : document.querySelector('#main div[role="row"]:last-child');
+            if (!lastOut) return { hasCheck: false, isPending: true, hasError: false };
+
+            const check = lastOut.querySelector('span[data-icon="msg-check"], span[data-icon="msg-dblcheck"], span[data-icon="status-check"], span[data-icon="status-dblcheck"]');
+            const pending = lastOut.querySelector('span[data-icon="msg-time"], span[data-icon="status-time"], span[data-icon="time"]');
+            const error = lastOut.querySelector('span[data-icon="msg-error"], span[data-icon="alert-error"], [data-testid="fail-container"]');
+
             return {
-              pending: pendingIcons.length,
-              checks: checkIcons.length,
-              error: errorIcons.length,
+              hasCheck: !!check,
+              isPending: !!pending,
+              hasError: !!error,
             };
           });
 
-          // If there's an error icon, click it and trigger Retry in modal
-          if (status.error > 0) {
-            const failBtn = await page.$(
-              '[data-testid="fail-container"] div[role="button"], span[data-icon="msg-error"], span[data-icon="alert-error"], [data-testid="fail-container"]'
-            );
-            if (failBtn) {
-              logger.warn('⚠️ Detected message error icon, clicking to retry...');
-              await failBtn.click({ force: true }).catch(() => { });
-              await page.waitForTimeout(1000);
-              const tryAgainBtn = await page.$(
-                'div[role="dialog"] button:has-text("Try again"), div[role="dialog"] [role="button"]:has-text("Try again")'
-              );
-              if (tryAgainBtn) {
-                await tryAgainBtn.click({ force: true }).catch(() => { });
-              }
-            }
-          }
-
-          if (status.checks > 0 && status.pending === 0 && status.error === 0) {
+          if (lastMsgState.hasCheck) {
             confirmedDelivery = true;
             logger.info('✅ Confirmed! WhatsApp server acknowledged message delivery (checkmark received).');
             break;
           }
 
+          if (lastMsgState.hasError) {
+            logger.warn('⚠️ Last message indicates an error state, attempting retry click...');
+            const failBtn = await page.$('#main div.message-out:last-of-type [data-testid="fail-container"], #main div.message-out:last-of-type span[data-icon="msg-error"]');
+            if (failBtn) {
+              await failBtn.click({ force: true }).catch(() => { });
+              await page.waitForTimeout(1000);
+              const tryAgainBtn = await page.$('div[role="dialog"] button:has-text("Try again")');
+              if (tryAgainBtn) await tryAgainBtn.click({ force: true }).catch(() => { });
+            }
+          }
+
           await page.waitForTimeout(1000);
         }
 
-        if (!confirmedDelivery) {
-          logger.error('❌ Message delivery was not confirmed by WhatsApp server (remained in pending or error state). Please ensure your phone is online and synced.');
-        } else {
+        // Check if compose box was cleared (message entered transmission queue)
+        const isBoxCleared = await page.evaluate(() => {
+          const box = document.querySelector('#main footer div[contenteditable="true"]');
+          return !box || (box.textContent || '').trim() === '';
+        });
+
+        if (confirmedDelivery) {
           sentCount++;
-          logger.info('🚀 [Alert %d/%d] Successfully posted to WhatsApp!', idx + 1, messages.length);
+          logger.info('🚀 [Alert %d/%d] Successfully posted to WhatsApp (verified checkmark ✔️)!', idx + 1, messages.length);
+        } else if (isBoxCleared) {
+          sentCount++;
+          logger.info('🚀 [Alert %d/%d] Message submitted to WhatsApp pipeline (clock icon queued, syncing to phone)!', idx + 1, messages.length);
+        } else {
+          logger.error('❌ Message delivery failed: text was not submitted from composer.');
         }
 
         // Pacing delay between batch messages to prevent WhatsApp anti-spam flags
