@@ -25,6 +25,8 @@ const CATEGORY_EMOJIS: Record<JobCategory, string> = {
   GOVT: '🏛️',
   COHORT: '📚',
   REFERRAL: '🤝',
+  DIGEST: '🔥',
+  COMMUNITY: '🌟',
   UNKNOWN: '🚀',
 };
 
@@ -35,6 +37,8 @@ const CATEGORY_HASHTAGS: Record<JobCategory, string> = {
   GOVT: '#GovtJobs #SarkariNaukri #Notification',
   COHORT: '#Upskilling #Cohort #Webinars',
   REFERRAL: '#Referrals #Networking #Jobs',
+  DIGEST: '#DailyDigest #JobAlerts #CareerGrowth',
+  COMMUNITY: '#CommunityHighlights #Opportunities',
   UNKNOWN: '#JobAlert #HiringNow',
 };
 

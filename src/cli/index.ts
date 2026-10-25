@@ -8,7 +8,7 @@ import { whatsAppPublisher } from '../publisher/whatsapp.js';
 import { publishingQueue } from '../publisher/queue.js';
 import { schedulerService } from '../scheduler/cron.js';
 import { JobCategory, RawScrapedJob } from '../types/job.js';
-import { formatWhatsAppJobMessage } from '../ai/formatter.js';
+import { formatWhatsAppJobMessage, formatDailyDigestMessage } from '../ai/formatter.js';
 import { extractExperience } from '../ai/classify.js';
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
@@ -120,6 +120,108 @@ program
     }
   });
 
+// Helper: Compile and send Daily Digest without database dependency
+async function compileAndSendLiveDigest(targetGroupOverride?: string): Promise<void> {
+  const targetGroup = targetGroupOverride || env.WHATSAPP_GROUP_COMMUNITY || 'Daily Highlights';
+  logger.info('📰 [Daily Digest] Compiling live Digest across Tech, Internships, and Non-Tech for "%s"...', targetGroup);
+
+  let techRaw: RawScrapedJob[] = [];
+  let internRaw: RawScrapedJob[] = [];
+  let nonTechRaw: RawScrapedJob[] = [];
+
+  try {
+    techRaw = await scraperManager.runSource('public-feeds');
+  } catch (e) {
+    logger.warn('Tech feeds error in digest: %s', (e as Error).message);
+  }
+
+  try {
+    internRaw = await scraperManager.runSource('internshala');
+  } catch (e) {
+    logger.warn('Internships error in digest: %s', (e as Error).message);
+  }
+
+  try {
+    nonTechRaw = await scraperManager.runSource('startup-boards');
+  } catch (e) {
+    logger.warn('Non-Tech error in digest: %s', (e as Error).message);
+  }
+
+  // Filter fresh & verified Tech picks
+  const techPicks = techRaw
+    .filter((j) => {
+      const text = `${j.title} ${j.description}`;
+      const exp = extractExperience(text, 'TECH');
+      return exp.isFresherEligible && /\b(software|developer|frontend|backend|fullstack|engineer|data|devops|cloud|react|node|python|java|web)\b/i.test(j.title);
+    })
+    .slice(0, 3)
+    .map((j) => ({
+      title: j.title,
+      company: j.company,
+      location: j.location,
+      url: j.url,
+      score: 92,
+    }));
+
+  // Filter fresh Internships
+  const internPicks = internRaw
+    .filter((j) => {
+      const text = `${j.title} ${j.description}`.toLowerCase();
+      return /\b(intern|internship|trainee|apprentice|fellow)\b/i.test(text);
+    })
+    .slice(0, 2)
+    .map((j) => ({
+      title: j.title,
+      company: j.company,
+      location: j.location,
+      url: j.url,
+      score: 90,
+    }));
+
+  // Filter Non-Tech / Business picks
+  const nonTechPicks = nonTechRaw
+    .filter((j) => {
+      const text = `${j.title} ${j.description}`;
+      const exp = extractExperience(text, 'NON_TECH');
+      return exp.isFresherEligible && !/\b(software engineer|developer|frontend|backend|devops|sre)\b/i.test(j.title);
+    })
+    .slice(0, 2)
+    .map((j) => ({
+      title: j.title,
+      company: j.company,
+      location: j.location,
+      url: j.url,
+      score: 88,
+    }));
+
+  const totalCount = techPicks.length + internPicks.length + nonTechPicks.length;
+  if (totalCount === 0) {
+    logger.warn('No jobs available to compile Daily Digest.');
+    return;
+  }
+
+  const now = new Date();
+  const todayStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+
+  const digestText = formatDailyDigestMessage({
+    date: todayStr,
+    techJobs: techPicks,
+    internships: internPicks,
+    nonTechJobs: nonTechPicks,
+    totalCount,
+  });
+
+  logger.info('Prepared Daily Digest with %d opportunities. Sending to WhatsApp group "%s"...', totalCount, targetGroup);
+  const result = await whatsAppPublisher.sendMessage(targetGroup, digestText);
+
+  if (result.success) {
+    logger.info('🎉 Successfully published Daily Digest to "%s"!', targetGroup);
+  } else {
+    logger.error('⚠️ Failed to publish Daily Digest: %s', result.error);
+    process.exit(1);
+  }
+}
+
 // Command: Publish Category Batch or Daily Digest
 program
   .command('publish')
@@ -128,15 +230,32 @@ program
   .option('-l, --limit <limit>', 'Maximum jobs to publish', '5')
   .option('-d, --digest', 'Generate and publish 8:00 PM daily digest of top picks')
   .action(async (options) => {
+    if (options.digest) {
+      if (!process.env.DATABASE_URL) {
+        logger.info('ℹ️ No DATABASE_URL found. Compiling Daily Digest live from active feeds...');
+        await compileAndSendLiveDigest();
+        return;
+      }
+
+      const connected = await connectDatabase();
+      if (!connected) {
+        logger.info('ℹ️ Database connection skipped. Falling back to live Daily Digest compilation...');
+        await compileAndSendLiveDigest();
+        return;
+      }
+
+      try {
+        await publishingQueue.publishDailyDigest();
+      } finally {
+        await disconnectDatabase();
+      }
+      return;
+    }
+
     const connected = await connectDatabase();
     if (!connected) process.exit(1);
 
     try {
-      if (options.digest) {
-        await publishingQueue.publishDailyDigest();
-        return;
-      }
-
       if (!options.category) {
         logger.error('Error: Please specify -c, --category <CATEGORY> (e.g. TECH, INTERNSHIP, NON_TECH, GOVT) or --digest');
         return;
@@ -157,8 +276,18 @@ program
   .command('digest')
   .description('Generate and send daily digest of top picks to WhatsApp community')
   .action(async () => {
+    if (!process.env.DATABASE_URL) {
+      logger.info('ℹ️ No DATABASE_URL found. Compiling Daily Digest live from active feeds...');
+      await compileAndSendLiveDigest();
+      return;
+    }
+
     const connected = await connectDatabase();
-    if (!connected) process.exit(1);
+    if (!connected) {
+      logger.info('ℹ️ Database connection skipped. Falling back to live Daily Digest compilation...');
+      await compileAndSendLiveDigest();
+      return;
+    }
 
     try {
       await publishingQueue.publishDailyDigest();
@@ -319,6 +448,11 @@ program
             logger.warn('LinkedIn scraper error: %s', (e as Error).message);
           }
           break;
+
+        case 'DIGEST':
+        case 'COMMUNITY':
+          await compileAndSendLiveDigest(targetGroup);
+          return;
 
         default:
           // Daily Community Highlights

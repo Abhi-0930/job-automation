@@ -202,8 +202,10 @@ export class WhatsAppPublisher {
 
       // Helper function to find and click matching chat with exact title priority
       const findAndClickChat = async (): Promise<boolean> => {
+        if (!page) return false;
+        const activePage = page;
         try {
-          const matchIndex = await page.evaluate((target) => {
+          const matchIndex = await activePage.evaluate((target) => {
             const spans = Array.from(document.querySelectorAll('#pane-side span[title]'));
             const normalized = target.trim().toLowerCase();
 
@@ -226,7 +228,7 @@ export class WhatsAppPublisher {
           }, cleanGroupName);
 
           if (matchIndex !== -1) {
-            const matchedSpan = page.locator('#pane-side span[title]').nth(matchIndex);
+            const matchedSpan = activePage.locator('#pane-side span[title]').nth(matchIndex);
             await matchedSpan.click({ force: true });
             return true;
           }

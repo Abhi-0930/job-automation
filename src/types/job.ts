@@ -5,6 +5,8 @@ export type JobCategory =
   | 'GOVT'
   | 'COHORT'
   | 'REFERRAL'
+  | 'DIGEST'
+  | 'COMMUNITY'
   | 'UNKNOWN';
 
 export type JobStatus =

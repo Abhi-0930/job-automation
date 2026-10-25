@@ -111,11 +111,7 @@ jobs:
           # If triggered manually via workflow_dispatch
           if [ -n "$CATEGORY_INPUT" ]; then
             echo "🚀 Manual dispatch for category: $CATEGORY_INPUT"
-            if [ "$CATEGORY_INPUT" = "DIGEST" ]; then
-              run_dispatch npx tsx src/cli/index.ts publish --digest
-            else
-              run_dispatch npx tsx src/cli/index.ts live --category "$CATEGORY_INPUT" --limit 1
-            fi
+            run_dispatch npx tsx src/cli/index.ts live --category "$CATEGORY_INPUT" --limit 1
             exit 0
           fi
 
@@ -154,7 +150,7 @@ jobs:
             run_dispatch npx tsx src/cli/index.ts live --category GOVT --limit 1
           elif [ "$IST_HM" -ge 2046 ] && [ "$IST_HM" -le 2200 ]; then
             echo "🎯 Executing: Daily Digest (09:00 PM IST)"
-            run_dispatch npx tsx src/cli/index.ts publish --digest
+            run_dispatch npx tsx src/cli/index.ts live --category DIGEST
           else
             echo "🎯 Outside scheduled windows. Defaulting to Tech Jobs dispatch."
             run_dispatch npx tsx src/cli/index.ts live --category TECH --limit 1
