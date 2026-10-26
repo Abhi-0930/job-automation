@@ -2,26 +2,26 @@ name: Automated WhatsApp Job Dispatcher
 
 on:
   schedule:
-    # Government Jobs Slot 1 (08:45 AM IST = 03:15 UTC)
-    - cron: '15 3 * * *'
-    # Tech Jobs Slot 1 (09:45 AM IST = 04:15 UTC)
-    - cron: '15 4 * * *'
-    # Internships Slot 1 (10:15 AM IST = 04:45 UTC)
-    - cron: '45 4 * * *'
-    # Non-Tech Jobs Slot 1 (11:00 AM IST = 05:30 UTC)
-    - cron: '30 5 * * *'
-    # Referrals & Startups (01:45 PM IST = 08:15 UTC)
-    - cron: '15 8 * * *'
-    # Internships Slot 2 (05:30 PM IST = 12:00 UTC)
-    - cron: '0 12 * * *'
-    # Tech Jobs Slot 2 (06:15 PM IST = 12:45 UTC)
-    - cron: '45 12 * * *'
-    # Non-Tech Jobs Slot 2 (07:15 PM IST = 13:45 UTC)
-    - cron: '45 13 * * *'
-    # Government Jobs Slot 2 (08:15 PM IST = 14:45 UTC)
-    - cron: '45 14 * * *'
-    # Daily Digest (09:00 PM IST = 15:30 UTC)
-    - cron: '30 15 * * *'
+    # Government Jobs Slot 1 (08:48 AM IST = 03:18 UTC)
+    - cron: '18 3 * * *'
+    # Tech Jobs Slot 1 (09:48 AM IST = 04:18 UTC)
+    - cron: '18 4 * * *'
+    # Internships Slot 1 (10:18 AM IST = 04:48 UTC)
+    - cron: '48 4 * * *'
+    # Non-Tech Jobs Slot 1 (11:02 AM IST = 05:32 UTC)
+    - cron: '32 5 * * *'
+    # Referrals & Startups (01:48 PM IST = 08:18 UTC)
+    - cron: '18 8 * * *'
+    # Internships Slot 2 (05:33 PM IST = 12:03 UTC)
+    - cron: '3 12 * * *'
+    # Tech Jobs Slot 2 (06:18 PM IST = 12:48 UTC)
+    - cron: '48 12 * * *'
+    # Non-Tech Jobs Slot 2 (07:18 PM IST = 13:48 UTC)
+    - cron: '48 13 * * *'
+    # Government Jobs Slot 2 (08:18 PM IST = 14:48 UTC)
+    - cron: '48 14 * * *'
+    # Daily Digest (09:02 PM IST = 15:32 UTC)
+    - cron: '32 15 * * *'
   workflow_dispatch:
     inputs:
       category:
@@ -82,6 +82,7 @@ jobs:
           WHATSAPP_GROUP_REFERRAL: ${{ secrets.WHATSAPP_GROUP_REFERRAL || 'Referrals & Networking' }}
           WHATSAPP_GROUP_COMMUNITY: ${{ secrets.WHATSAPP_GROUP_COMMUNITY || 'Daily Highlights' }}
           CATEGORY_INPUT: ${{ github.event.inputs.category }}
+          CRON_TRIGGER: ${{ github.event.schedule }}
         run: |
           # Helper to execute with real X11 virtual display (bypasses headless detection)
           run_with_display() {
@@ -108,53 +109,86 @@ jobs:
             return "$status"
           }
 
-          # If triggered manually via workflow_dispatch
+          # 1. Manual dispatch via workflow_dispatch
           if [ -n "$CATEGORY_INPUT" ]; then
             echo "🚀 Manual dispatch for category: $CATEGORY_INPUT"
             run_dispatch npx tsx src/cli/index.ts live --category "$CATEGORY_INPUT" --limit 1
             exit 0
           fi
 
-          # If triggered on cron schedule, detect current IST time and dispatch matching slot
-          IST_HM=$(date +"%-H%M")
-          IST_READABLE=$(date +"%I:%M %p")
-          echo "⏰ Cron triggered. Current IST Time: ${IST_READABLE} (HM: ${IST_HM})"
+          # 2. Automated Scheduled Dispatch via exact CRON_TRIGGER matching
+          echo "⏰ Cron triggered: '$CRON_TRIGGER' | Current IST: $(date +'%I:%M %p')"
+          TARGET_CAT=""
 
-          # Match IST time window to target category
-          if [ "$IST_HM" -ge 815 ] && [ "$IST_HM" -le 915 ]; then
-            echo "🎯 Executing: Government Jobs Slot 1 (08:45 AM IST)"
-            run_dispatch npx tsx src/cli/index.ts live --category GOVT --limit 1
-          elif [ "$IST_HM" -ge 916 ] && [ "$IST_HM" -le 1005 ]; then
-            echo "🎯 Executing: Tech Jobs Slot 1 (09:45 AM IST)"
-            run_dispatch npx tsx src/cli/index.ts live --category TECH --limit 1
-          elif [ "$IST_HM" -ge 1006 ] && [ "$IST_HM" -le 1045 ]; then
-            echo "🎯 Executing: Internships Slot 1 (10:15 AM IST)"
-            run_dispatch npx tsx src/cli/index.ts live --category INTERNSHIP --limit 1
-          elif [ "$IST_HM" -ge 1046 ] && [ "$IST_HM" -le 1200 ]; then
-            echo "🎯 Executing: Non-Tech Jobs Slot 1 (11:00 AM IST)"
-            run_dispatch npx tsx src/cli/index.ts live --category NON_TECH --limit 1
-          elif [ "$IST_HM" -ge 1300 ] && [ "$IST_HM" -le 1500 ]; then
-            echo "🎯 Executing: Referrals & Startups (01:45 PM IST)"
-            run_dispatch npx tsx src/cli/index.ts live --category REFERRAL --limit 1
-          elif [ "$IST_HM" -ge 1700 ] && [ "$IST_HM" -le 1759 ]; then
-            echo "🎯 Executing: Internships Slot 2 (05:30 PM IST)"
-            run_dispatch npx tsx src/cli/index.ts live --category INTERNSHIP --limit 1
-          elif [ "$IST_HM" -ge 1800 ] && [ "$IST_HM" -le 1859 ]; then
-            echo "🎯 Executing: Tech Jobs Slot 2 (06:15 PM IST)"
-            run_dispatch npx tsx src/cli/index.ts live --category TECH --limit 1
-          elif [ "$IST_HM" -ge 1900 ] && [ "$IST_HM" -le 1959 ]; then
-            echo "🎯 Executing: Non-Tech Jobs Slot 2 (07:15 PM IST)"
-            run_dispatch npx tsx src/cli/index.ts live --category NON_TECH --limit 1
-          elif [ "$IST_HM" -ge 2000 ] && [ "$IST_HM" -le 2045 ]; then
-            echo "🎯 Executing: Government Jobs Slot 2 (08:15 PM IST)"
-            run_dispatch npx tsx src/cli/index.ts live --category GOVT --limit 1
-          elif [ "$IST_HM" -ge 2046 ] && [ "$IST_HM" -le 2200 ]; then
-            echo "🎯 Executing: Daily Digest (09:00 PM IST)"
-            run_dispatch npx tsx src/cli/index.ts live --category DIGEST
-          else
-            echo "ℹ️ Current time (${IST_READABLE}, HM: ${IST_HM}) is outside all scheduled slots. Skipping dispatch."
+          case "$CRON_TRIGGER" in
+            "18 3 * * *"|"15 3 * * *")
+              TARGET_CAT="GOVT"
+              echo "🎯 Matched: Government Jobs Slot 1 (08:48 AM IST)"
+              ;;
+            "18 4 * * *"|"15 4 * * *")
+              TARGET_CAT="TECH"
+              echo "🎯 Matched: Tech Jobs Slot 1 (09:48 AM IST)"
+              ;;
+            "48 4 * * *"|"45 4 * * *")
+              TARGET_CAT="INTERNSHIP"
+              echo "🎯 Matched: Internships Slot 1 (10:18 AM IST)"
+              ;;
+            "32 5 * * *"|"30 5 * * *")
+              TARGET_CAT="NON_TECH"
+              echo "🎯 Matched: Non-Tech Jobs Slot 1 (11:02 AM IST)"
+              ;;
+            "18 8 * * *"|"15 8 * * *")
+              TARGET_CAT="REFERRAL"
+              echo "🎯 Matched: Referrals & Startups (01:48 PM IST)"
+              ;;
+            "3 12 * * *"|"0 12 * * *")
+              TARGET_CAT="INTERNSHIP"
+              echo "🎯 Matched: Internships Slot 2 (05:33 PM IST)"
+              ;;
+            "48 12 * * *"|"45 12 * * *")
+              TARGET_CAT="TECH"
+              echo "🎯 Matched: Tech Jobs Slot 2 (06:18 PM IST)"
+              ;;
+            "48 13 * * *"|"45 13 * * *")
+              TARGET_CAT="NON_TECH"
+              echo "🎯 Matched: Non-Tech Jobs Slot 2 (07:18 PM IST)"
+              ;;
+            "48 14 * * *"|"45 14 * * *")
+              TARGET_CAT="GOVT"
+              echo "🎯 Matched: Government Jobs Slot 2 (08:18 PM IST)"
+              ;;
+            "32 15 * * *"|"30 15 * * *")
+              TARGET_CAT="DIGEST"
+              echo "🎯 Matched: Daily Digest (09:02 PM IST)"
+              ;;
+            *)
+              echo "⚠️ Unmatched cron trigger string: '$CRON_TRIGGER'. Falling back to hour evaluation."
+              ;;
+          esac
+
+          if [ -n "$TARGET_CAT" ]; then
+            run_dispatch npx tsx src/cli/index.ts live --category "$TARGET_CAT" --limit 1
             exit 0
           fi
+
+          # 3. Fallback: Full hour evaluation if CRON_TRIGGER is empty or custom
+          HOUR=$(date +"%-H")
+          case "$HOUR" in
+            8)     run_dispatch npx tsx src/cli/index.ts live --category GOVT --limit 1 ;;
+            9)     run_dispatch npx tsx src/cli/index.ts live --category TECH --limit 1 ;;
+            10)    run_dispatch npx tsx src/cli/index.ts live --category INTERNSHIP --limit 1 ;;
+            11|12) run_dispatch npx tsx src/cli/index.ts live --category NON_TECH --limit 1 ;;
+            13|14) run_dispatch npx tsx src/cli/index.ts live --category REFERRAL --limit 1 ;;
+            17)    run_dispatch npx tsx src/cli/index.ts live --category INTERNSHIP --limit 1 ;;
+            18)    run_dispatch npx tsx src/cli/index.ts live --category TECH --limit 1 ;;
+            19)    run_dispatch npx tsx src/cli/index.ts live --category NON_TECH --limit 1 ;;
+            20)    run_dispatch npx tsx src/cli/index.ts live --category GOVT --limit 1 ;;
+            21)    run_dispatch npx tsx src/cli/index.ts live --category DIGEST --limit 1 ;;
+            *)
+              echo "ℹ️ Current hour ($HOUR) is outside operational window. Skipping dispatch."
+              exit 0
+              ;;
+          esac
 
       - name: Upload Debug Screenshots
         if: always()
